@@ -112,3 +112,6 @@ Cargo.lock
 config.local.json
 .env.local
 .env.*.local
+
+*.egg-info
+*.egg
