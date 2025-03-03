@@ -3,9 +3,9 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from services import lead_service
-from db.connection import get_db
-from models import lead as lead_models  # Import Pydantic models
+from ..services import lead_service
+from ..db.connection import get_db
+from ..models import lead as lead_models  # Import Pydantic models
 # from app.db import models as db_models # If you need to refer to SQLAlchemy models directly in endpoints (less common)
 
 

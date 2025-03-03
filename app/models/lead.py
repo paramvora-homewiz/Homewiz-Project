@@ -26,7 +26,7 @@ class LeadUpdateWishlist(BaseModel):
 class Lead(LeadBase):
     lead_id: str
     interaction_count: int
-    rooms_interested: Optional[List[str]] = None
+    rooms_interested: Optional[str] = None
     selected_room_id: Optional[str] = None
     showing_dates: Optional[List[str]] = None
     planned_move_in: Optional[str] = None # Date as string (or use pydantic.datetime)

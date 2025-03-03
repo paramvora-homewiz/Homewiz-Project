@@ -3,7 +3,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from db import models
+from ..db import models
 
 
 def get_lead_by_id(db: Session, lead_id: str) -> Optional[models.Lead]:
