@@ -1,3 +1,4 @@
+import uuid
 from typing import List, Optional
 from datetime import datetime
 
@@ -24,7 +25,7 @@ def create_lead(db: Session, email: str, status: str = "EXPLORING") -> models.Le
     """
     Creates a new lead in the database.
     """
-    lead_id = f"LEAD_{datetime.now().strftime('%Y%m%d%H%M%S')}" # Generate lead_id here
+    lead_id = f"LEAD_{uuid.uuid4()}"
     db_lead = models.Lead(lead_id=lead_id, email=email, status=status) # Include lead_id when creating Lead object
     db.add(db_lead)
     db.commit()
