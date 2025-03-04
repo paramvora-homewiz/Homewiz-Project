@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.endpoints import leads, rooms, tenants, buildings, operators
+from app.endpoints import leads, rooms, tenants, buildings, operators, query
 
 app = FastAPI()
 
@@ -8,6 +8,7 @@ app.include_router(rooms.router)
 app.include_router(tenants.router)
 app.include_router(buildings.router)
 app.include_router(operators.router)
+app.include_router(query.router)
 
 @app.get("/")
 async def root():
