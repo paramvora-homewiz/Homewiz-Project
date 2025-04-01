@@ -1,7 +1,7 @@
 # app/ai_dispatcher.py
 from typing import Dict, Any
 
-from app.ai_functions import admin_data_query_function, find_buildings_rooms_function, schedule_showing_function
+from app.ai_functions import admin_data_query_function, create_communication_function, filter_rooms_function, find_buildings_rooms_function, generate_document_function, generate_insights_function, manage_checklist_function, process_maintenance_request_function, schedule_event_function, schedule_showing_function
 from app.db.connection import get_db  # Import get_db
 from fastapi import Depends  # Import Depends
 from sqlalchemy.orm import Session  # Import Session
@@ -11,6 +11,13 @@ AI_FUNCTIONS_REGISTRY = {
     "find_buildings_rooms_function": find_buildings_rooms_function,  # Use function_name as key
     "admin_data_query_function": admin_data_query_function,
     "schedule_showing_function": schedule_showing_function,
+    "filter_rooms_function": filter_rooms_function,
+    "schedule_event_function": schedule_event_function,
+    "process_maintenance_request_function": process_maintenance_request_function,
+    "generate_insights_function": generate_insights_function,
+    "create_communication_function": create_communication_function,
+    "generate_document_function": generate_document_function,
+    "manage_checklist_function": manage_checklist_function,
 }
 
 
