@@ -40,6 +40,10 @@ class BuildingBase(BaseModel):
     created_at: Optional[datetime] = None
     last_modified: Optional[datetime] = None
 
+    # NEW: Image-related fields
+    building_images: Optional[List[str]] = []  # List of image URLs
+    virtual_tour_url: Optional[str] = None
+
 class BuildingCreate(BuildingBase):
     pass # No extra fields for creation
 
@@ -78,9 +82,30 @@ class BuildingUpdate(BuildingBase):
     created_at: Optional[Optional[datetime]] = None
     last_modified: Optional[Optional[datetime]] = None
 
+    building_images: Optional[List[str]] = None
+    virtual_tour_url: Optional[str] = None
+
 
 class Building(BuildingBase):
     # building_id: str # building_id is in BuildingBase
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+# New models for image handling
+class ImageUploadResponse(BaseModel):
+    """Response model for image upload"""
+    image_url: str
+    image_path: str
+    file_name: str
+    original_name: str
+
+class BuildingImageUpdate(BaseModel):
+    """Model for updating building images"""
+    building_id: str
+    image_urls: List[str]
+
+class BuildingWithImageCount(Building):
+    """Building model with additional image count info"""
+    image_count: Optional[int] = 0
+    storage_image_count: Optional[int] = 0

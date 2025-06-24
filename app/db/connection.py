@@ -5,14 +5,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
 DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
 
-DATABASE_PASSWORD = "postgres"
-
 if not DATABASE_URL:
-    raise EnvironmentError("SUPABASE_DB_URL not set.")
+    raise EnvironmentError("DATABASE_URL not set.")
 if not DATABASE_PASSWORD:
-    raise EnvironmentError("SUPABASE_DB_PASSWORD not set.")
+    raise EnvironmentError("DATABASE_PASSWORD not set.")
 
 SQLALCHEMY_DATABASE_URL = f"{DATABASE_URL}"
 
@@ -27,6 +27,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     try:
