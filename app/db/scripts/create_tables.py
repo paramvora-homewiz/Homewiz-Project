@@ -1,5 +1,6 @@
-from app.db.connection import engine
+
 from app.db.models import Base
+from app.db.connection import engine
 
 
 def create_tables():

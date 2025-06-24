@@ -18,20 +18,20 @@ from google.genai.types import (  # Double check these imports are exactly as sh
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Define function declaration for Gemini Function Calling
-find_buildings_rooms_function_declaration = {
-    "name": "find_buildings_rooms_function",  # MUST match function name in AI_FUNCTIONS_REGISTRY
-    "description": "Find buildings and rooms based on user query and filters.",
-    "parameters": {
-        "type": "OBJECT",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "Natural language query from the user describing their room preferences (e.g., location, view, price range).",
-            }
-        },
-        "required": ["query"],
-    },
-}
+# find_buildings_rooms_function_declaration = {
+#     "name": "find_buildings_rooms_function",  # MUST match function name in AI_FUNCTIONS_REGISTRY
+#     "description": "Find buildings and rooms based on user query and filters.",
+#     "parameters": {
+#         "type": "OBJECT",
+#         "properties": {
+#             "query": {
+#                  "type": "string",
+#                 "description": "Natural language query from the user describing their room preferences (e.g., location, view, price range).",
+#             }
+#         },
+#         "required": ["query"],
+#     },
+# }
 
 
 def find_buildings_rooms_function(query: str, db: Session = Depends(get_db)) -> Dict[str, Any]:  # function_dispatcher import REMOVED - no longer needed

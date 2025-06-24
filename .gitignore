@@ -35,6 +35,10 @@ bower_components/
 /.pnp
 .pnp.js
 
+# Legacy Packages
+ai_tests/
+
+
 # Dependency Directories
 venv/
 .env/
@@ -72,6 +76,8 @@ $RECYCLE.BIN/
 *.pyo
 *.pyd
 venv/
+.venv/
+.pytest_cache/
 
 # Java
 *.class

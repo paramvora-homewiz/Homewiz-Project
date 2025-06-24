@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("SUPABASE_DB_URL")
-DATABASE_PASSWORD = os.getenv("SUPABASE_DB_PASSWORD")
+DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
+DATABASE_PASSWORD = "postgres"
 
 if not DATABASE_URL:
     raise EnvironmentError("SUPABASE_DB_URL not set.")

@@ -20,8 +20,9 @@ class Operator(Base):
     emergency_contact = Column(Boolean, default=False)  # Whether this operator can be contacted in emergencies
     calendar_sync_enabled = Column(Boolean, default=False)
     calendar_external_id = Column(String)  # ID for external calendar integration
-
-    buildings = relationship("Building", back_populates="operator")
+    buildings = relationship("Building", back_populates="operator",foreign_keys="[Building.operator_id]")  # Foreign key to the operator_id in the buildings table
+    # manager_id = Column(Integer, ForeignKey("operators.operator_id"))
+    # manager = relationship("Operator", backref="subordinates", foreign_keys=[manager_id])
     rooms_checked = relationship("Room", back_populates="checked_by_operator", foreign_keys="[Room.last_check_by]")
 
 
@@ -51,7 +52,7 @@ class Building(Base):
     secure_access = Column(Boolean, default=False)
     bike_storage = Column(Boolean, default=False)
     rooftop_access = Column(Boolean, default=False)
-    pet_friendly = Column(String)
+    pet_friendly = Column(String)                                           
     cleaning_common_spaces = Column(String)
     utilities_included = Column(Boolean, default=False)
     fitness_area = Column(Boolean, default=False)
@@ -60,9 +61,8 @@ class Building(Base):
     nearby_conveniences_walk = Column(String)
     nearby_transportation = Column(String)
     priority = Column(Integer)
-    created_at = Column(TIMESTAMP(timezone=True), server_default=text("CURRENT_TIMESTAMP"))
+    created_at = Column(TIMESTAMP(timezone=True), server_default=text("CURRENT_TIMESTAMP"))                                #2 Can change date format  datetime.datetime(2025, 6, 17, 23, 5, 43, 114554, tzinfo=datetime.timezone.utc)
     last_modified = Column(TIMESTAMP(timezone=True), server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP"))
-    property_manager = Column(Integer, ForeignKey("operators.operator_id"))
     year_built = Column(Integer)
     last_renovation = Column(Integer)
     building_rules = Column(String)
@@ -77,7 +77,8 @@ class Building(Base):
     building_images = Column(String)  # JSON array of image URLs or references
     virtual_tour_url = Column(String)
 
-    operator = relationship("Operator", back_populates="buildings")
+    operator = relationship("Operator", back_populates="buildings", foreign_keys=[operator_id])
+    # operator = relationship("Operator", back_populates="buildings")
     rooms = relationship("Room", back_populates="building")
     tenants = relationship("Tenant", back_populates="building")
 
