@@ -35,8 +35,13 @@ class RoomBase(BaseModel):
     cable_tv: Optional[bool] = False
     room_storage: Optional[str] = "Built-in Closet"
 
+    # NEW: Room image fields
+    room_images: Optional[List[str]] = []  # List of room image URLs
+    virtual_tour_url: Optional[str] = None
+
 class RoomCreate(RoomBase):
     room_id: str # Client needs to provide room_id
+    room_images: Optional[List[str]] = []
 
 class RoomUpdate(RoomBase):
     room_number: Optional[str] = None
@@ -68,9 +73,33 @@ class RoomUpdate(RoomBase):
     air_conditioning: Optional[Optional[bool]] = None
     cable_tv: Optional[Optional[bool]] = None
     room_storage: Optional[Optional[str]] = None
+    # NEW: Image fields in update model
+    room_images: Optional[List[str]] = None
+    virtual_tour_url: Optional[str] = None
 
 class Room(RoomBase):
     room_id: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+# Additional models for room image operations
+class RoomImageUploadResponse(BaseModel):
+    """Response model for room image upload"""
+    image_url: str
+    image_path: str
+    file_name: str
+    original_name: str
+    room_id: str
+    building_id: str
+
+class RoomImageUpdate(BaseModel):
+    """Model for updating room images"""
+    room_id: str
+    building_id: str
+    image_urls: List[str]
+
+class RoomWithImageCount(Room):
+    """Room model with additional image count info"""
+    image_count: Optional[int] = 0
+    storage_image_count: Optional[int] = 0

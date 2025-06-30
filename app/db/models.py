@@ -128,6 +128,7 @@ class Room(Base):
     virtual_tour_url = Column(String)
     available_from = Column(Date)
     additional_features = Column(String)
+    room_images = Column(String)
 
     building = relationship("Building", back_populates="rooms")
     tenants = relationship("Tenant", back_populates="room")
