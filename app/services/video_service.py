@@ -16,7 +16,7 @@ ALLOWED_VIDEO_TYPES = {
     "video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo",
     "video/x-ms-wmv", "video/webm", "video/ogg"
 }
-MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100MB (adjust based on your needs)
+MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 100MB (adjust based on your needs)
 VIDEO_BUCKET_NAME = "building-images"  # Using same bucket as images
 
 # Define standard video categories based on your storage structure
