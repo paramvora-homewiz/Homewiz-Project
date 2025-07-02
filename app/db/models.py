@@ -77,7 +77,7 @@ class Building(Base):
     disability_features = Column(String)
     building_images = Column(String)  # JSON array of image URLs or references
     virtual_tour_url = Column(String)
-
+    building_videos = Column(String)
     operator = relationship("Operator", back_populates="buildings", foreign_keys=[operator_id])
     # operator = relationship("Operator", back_populates="buildings")
     rooms = relationship("Room", back_populates="building")

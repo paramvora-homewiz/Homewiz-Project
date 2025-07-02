@@ -1,5 +1,5 @@
 # app/models/building.py
-from typing import List, Optional
+from typing import List, Optional,Dict
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -41,8 +41,11 @@ class BuildingBase(BaseModel):
     last_modified: Optional[datetime] = None
 
     # NEW: Image-related fields
-    building_images: Optional[List[str]] = []  # List of image URLs
+    building_images: Optional[List[str]] = []           # List of image URLs
     virtual_tour_url: Optional[str] = None
+    # building_videos: Optional[List[Dict]] = []        #incase we want to store video metadata
+    building_videos: Optional[List[str]] = []
+
 
 class BuildingCreate(BuildingBase):
     pass # No extra fields for creation
@@ -109,3 +112,21 @@ class BuildingWithImageCount(Building):
     """Building model with additional image count info"""
     image_count: Optional[int] = 0
     storage_image_count: Optional[int] = 0
+
+class VideoInfo(BaseModel):
+    """Video information model"""
+    video_url: str
+    video_path: str
+    file_name: str
+    original_name: str
+    video_category: str
+    file_size: int
+    content_type: str    
+
+    # If you want a model with parsed media
+class BuildingWithMedia(Building):
+    """Extended building model with parsed media"""
+    parsed_images: Optional[List[str]] = []
+    parsed_videos: Optional[List[VideoInfo]] = []
+    media_counts: Optional[Dict[str, int]] = {}
+    videos_by_category: Optional[Dict[str, List[VideoInfo]]] = {}

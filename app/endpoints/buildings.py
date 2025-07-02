@@ -1,6 +1,6 @@
 # app/endpoints/buildings.py
 
-from typing import List
+from typing import List, Optional
 from fastapi import UploadFile, File, Form
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +15,20 @@ from ..services.image_service import (
     update_building_images_in_db,
     get_building_images,
     get_building_image_count
+)
+
+from ..services.video_service import (
+    upload_building_video,
+    upload_multiple_building_videos,
+    delete_building_video,
+    delete_all_building_videos,
+    update_building_videos_in_db,
+    get_building_videos,
+    get_building_video_count,
+    get_videos_by_category,
+    get_videos_in_category_from_storage,
+    get_all_videos_from_storage,
+    VIDEO_CATEGORIES
 )
 from ..db.connection import get_db
 from ..models import building as building_models  # Import Pydantic models
@@ -320,5 +334,352 @@ async def reorder_building_images(
         
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+    # ===== VIDEO MANAGEMENT ENDPOINTS =====
+
+@router.post("/buildings/{building_id}/videos/upload")
+async def upload_building_videos(
+    building_id: str,
+    files: List[UploadFile] = File(...),
+    video_categories: Optional[List[str]] = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Upload multiple videos for a building"""
+    
+    # Check if building exists first
+    if not confirm_building_exists(db, building_id):
+        raise HTTPException(status_code=404, detail="Building not found")
+    
+    try:
+        # Parse video categories if provided as form data
+        if video_categories and isinstance(video_categories[0], str) and ',' in video_categories[0]:
+            video_categories = video_categories[0].split(',')
+        
+        # Validate categories
+        if video_categories:
+            for category in video_categories:
+                if category not in VIDEO_CATEGORIES:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Invalid category: {category}. Allowed: {', '.join(VIDEO_CATEGORIES)}"
+                    )
+        
+        # Upload videos to Supabase Storage
+        uploaded_videos = await upload_multiple_building_videos(db, building_id, files, video_categories)
+        
+        if not uploaded_videos:
+            raise HTTPException(status_code=400, detail="No videos were uploaded successfully")
+        
+        # Get current videos from database
+        current_videos = get_building_videos(db, building_id)
+        
+        # Add new video data to existing ones
+        all_videos = current_videos + uploaded_videos
+        
+        # Update building record with new video data
+        success = update_building_videos_in_db(db, building_id, all_videos)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update building with video data")
+        
+        return {
+            "message": f"Successfully uploaded {len(uploaded_videos)} videos",
+            "uploaded_videos": uploaded_videos,
+            "total_videos": len(all_videos),
+            "building_id": building_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@router.post("/buildings/{building_id}/videos/single")
+async def upload_single_building_video(
+    building_id: str,
+    file: UploadFile = File(...),
+    video_category: str = Form("general"),
+    db: Session = Depends(get_db)
+):
+    """Upload a single video for a building"""
+    
+    # Check if building exists
+    if not confirm_building_exists(db, building_id):
+        raise HTTPException(status_code=404, detail="Building not found")
+    
+    # Validate category
+    if video_category not in VIDEO_CATEGORIES:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid category: {video_category}. Allowed: {', '.join(VIDEO_CATEGORIES)}"
+        )
+    
+    try:
+        # Upload single video
+        uploaded_video = await upload_building_video(db, building_id, file, video_category)
+        
+        # Get current videos and add new one
+        current_videos = get_building_videos(db, building_id)
+        updated_videos = current_videos + [uploaded_video]
+        
+        # Update building record
+        success = update_building_videos_in_db(db, building_id, updated_videos)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update building with video data")
+        
+        return {
+            "message": "Video uploaded successfully",
+            "uploaded_video": uploaded_video,
+            "total_videos": len(updated_videos),
+            "building_id": building_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@router.get("/buildings/{building_id}/videos")
+def get_building_videos_endpoint(building_id: str, db: Session = Depends(get_db)):
+    """Get all videos for a building"""
+    
+    try:
+        videos = get_building_videos(db, building_id)
+        storage_count = get_building_video_count(building_id)
+        
+        return {
+            "building_id": building_id,
+            "videos": videos,
+            "total_count": len(videos),
+            "storage_count": storage_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/buildings/{building_id}/videos/category/{video_category}")
+def get_building_video_by_category(
+    building_id: str, 
+    video_category: str,
+    db: Session = Depends(get_db)
+):
+    """Get videos by category for a building"""
+    
+    # Validate category
+    if video_category not in VIDEO_CATEGORIES:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid category: {video_category}. Allowed: {', '.join(VIDEO_CATEGORIES)}"
+        )
+    
+    try:
+        videos = get_videos_by_category(db, building_id, video_category)
+        
+        # Also get actual files from storage for this category
+        storage_files = get_videos_in_category_from_storage(building_id, video_category)
+        
+        return {
+            "building_id": building_id,
+            "category": video_category,
+            "videos": videos,
+            "storage_files": storage_files,
+            "count": len(videos)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/buildings/{building_id}/videos/categories")
+def get_building_videos_by_categories(
+    building_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get all videos organized by categories"""
+    
+    try:
+        all_videos = get_building_videos(db, building_id)
+        
+        # Organize videos by category
+        videos_by_category = {category: [] for category in VIDEO_CATEGORIES}
+        
+        for video in all_videos:
+            category = video.get('video_category', 'general')
+            if category in videos_by_category:
+                videos_by_category[category].append(video)
+        
+        # Get storage counts for each category
+        storage_data = get_all_videos_from_storage(building_id)
+        storage_counts = {category: len(files) for category, files in storage_data.items()}
+        
+        return {
+            "building_id": building_id,
+            "videos_by_category": videos_by_category,
+            "storage_counts": storage_counts,
+            "total_videos": len(all_videos)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/buildings/{building_id}/videos")
+async def delete_building_video_endpoint(
+    building_id: str,
+    video_url: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Delete a specific video from a building"""
+    
+    try:
+        # Get current videos
+        current_videos = get_building_videos(db, building_id)
+        
+        # Find the video to delete
+        video_to_delete = None
+        for video in current_videos:
+            if video.get('video_url') == video_url:
+                video_to_delete = video
+                break
+        
+        if not video_to_delete:
+            raise HTTPException(status_code=404, detail="Video not found for this building")
+        
+        # Extract storage path from video data
+        video_path = video_to_delete.get('video_path')
+        
+        if not video_path:
+            # Try to extract from URL if path not stored
+            # The URL structure should contain the full path after the bucket name
+            if f'building-images/' in video_url:
+                video_path = video_url.split(f'building-images/')[-1]
+            else:
+                raise HTTPException(status_code=400, detail="Invalid video URL format")
+        
+        # Delete from Supabase storage
+        deleted = delete_building_video(building_id, video_path)
+        
+        if not deleted:
+            print(f"Warning: Could not delete video from storage: {video_path}")
+            # Continue anyway to remove from database
+        
+        # Remove from building record
+        updated_videos = [video for video in current_videos if video.get('video_url') != video_url]
+        success = update_building_videos_in_db(db, building_id, updated_videos)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update building record")
+        
+        return {
+            "message": "Video deleted successfully",
+            "remaining_videos": len(updated_videos),
+            "building_id": building_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/buildings/{building_id}/videos/all")
+async def delete_all_building_videos_endpoint(
+    building_id: str,
+    db: Session = Depends(get_db)
+):
+    """Delete ALL videos for a building"""
+    
+    if not confirm_building_exists(db, building_id):
+        raise HTTPException(status_code=404, detail="Building not found")
+    
+    try:
+        # Delete all videos from storage
+        deleted = delete_all_building_videos(building_id)
+        
+        if not deleted:
+            print(f"Warning: Could not delete all videos from storage for building {building_id}")
+        
+        # Clear building_videos field in database
+        success = update_building_videos_in_db(db, building_id, [])
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update building record")
+        
+        return {
+            "message": f"All videos deleted for building {building_id}",
+            "remaining_videos": 0,
+            "building_id": building_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/buildings/{building_id}/videos/reorder")
+async def reorder_building_videos(
+    building_id: str,
+    video_data: List[dict],
+    db: Session = Depends(get_db)
+):
+    """Reorder building videos"""
+    
+    if not confirm_building_exists(db, building_id):
+        raise HTTPException(status_code=404, detail="Building not found")
+    
+    try:
+        # Verify all provided videos belong to this building
+        current_videos = get_building_videos(db, building_id)
+        current_urls = {video.get('video_url') for video in current_videos}
+        
+        for video in video_data:
+            if video.get('video_url') not in current_urls:
+                raise HTTPException(status_code=400, detail=f"Video URL not found: {video.get('video_url')}")
+        
+        # Update with new order
+        success = update_building_videos_in_db(db, building_id, video_data)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to reorder videos")
+        
+        return {
+            "message": "Videos reordered successfully",
+            "new_order": video_data,
+            "total_videos": len(video_data),
+            "building_id": building_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/buildings/{building_id}/media/summary")
+def get_building_media_summary(
+    building_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get summary of all media (images and videos) for a building"""
+    
+    try:
+        images = get_building_images(db, building_id)
+        videos = get_building_videos(db, building_id)
+        
+        return {
+            "building_id": building_id,
+            "media_summary": {
+                "total_images": len(images),
+                "total_videos": len(videos),
+                "total_media": len(images) + len(videos),
+                "storage_usage": {
+                    "images_count": get_building_image_count(building_id),
+                    "videos_count": get_building_video_count(building_id)
+                }
+            },
+            "images": images,
+            "videos": videos
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
