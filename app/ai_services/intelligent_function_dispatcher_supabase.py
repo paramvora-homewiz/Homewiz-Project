@@ -9,6 +9,7 @@ from google.genai.types import GenerateContentConfig
 # Import Supabase versions of functions
 from app.ai_services.v1_intelligent_room_finder_supabase import find_buildings_rooms_function
 from app.ai_services.v2_intelligent_room_finder_supabase import filter_rooms_function
+from app.ai_services.v3_intelligent_insights_supabase import generate_insights_function
 
 # Import other functions (these need to be updated to Supabase too)
 # Comment out for now until they're converted
@@ -17,16 +18,16 @@ from app.ai_services.v2_intelligent_room_finder_supabase import filter_rooms_fun
 #     schedule_showing_function,
 #     schedule_event_function,
 #     process_maintenance_request_function,
-#     generate_insights_function,
 #     create_communication_function,
 #     generate_document_function,
 #     manage_checklist_function
 # )
 
-# Create function registry - only include converted functions for now
+# Create function registry - now includes insights function
 AI_FUNCTIONS_REGISTRY = {
     "find_buildings_rooms_function": find_buildings_rooms_function,
     "filter_rooms_function": filter_rooms_function,
+    "generate_insights_function": generate_insights_function,  # Added insights function
     # Add other functions as they get converted
 }
 
@@ -61,13 +62,29 @@ def intelligent_function_selection(query: str) -> Dict[str, Any]:
     - Advanced room criteria combined with building features
     - Complex queries mentioning both room and building requirements
 
+    Use generate_insights_function for:
+    - Analytics requests: occupancy rates, financial metrics, revenue analysis
+    - Reports: dashboard, performance metrics, tenant statistics
+    - Business insights: lead conversion, maintenance analytics
+    - Any query asking for statistics, metrics, analysis, or insights
+    - Keywords: analytics, insights, report, metrics, statistics, occupancy, revenue, performance
+
     Respond ONLY with the function call, NO TEXT
     Return JSON with:
     {{
         "function_name": "<exact_function_name_from_registry>",
-        "parameters": {{"query": "{query}"}},
+        "parameters": {{"query": "{query}", "insight_type": "<type>"}},
         "confidence": <0.0-1.0>
     }}
+    
+    For generate_insights_function, extract the insight_type from keywords:
+    - occupancy, availability → "OCCUPANCY"
+    - revenue, financial, money → "FINANCIAL"
+    - leads, conversion, sales → "LEAD_CONVERSION"
+    - maintenance, repairs → "MAINTENANCE"
+    - room performance → "ROOM_PERFORMANCE"
+    - tenant, resident → "TENANT"
+    - dashboard, overview, all → "DASHBOARD"
     
     Choose the most appropriate function and extract relevant parameters from the query.
     Return ONLY JSON.
@@ -79,7 +96,7 @@ def intelligent_function_selection(query: str) -> Dict[str, Any]:
             contents=system_prompt,
             config=GenerateContentConfig(
                 temperature=0.1,
-                max_output_tokens=100
+                max_output_tokens=150
             )
         )
         
