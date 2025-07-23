@@ -12,7 +12,7 @@ def create_function_selection_tools() -> List[FunctionDeclaration]:
             parameters={
                 "type": "OBJECT",
                 "properties": {
-                    "query": {"type": "STRING", "description": "User's room search query"}
+                    "query": {"type": "STRING", "description": "User's complete room search query - all criteria should be included in this string"}
                 },
                 "required": ["query"]
             }

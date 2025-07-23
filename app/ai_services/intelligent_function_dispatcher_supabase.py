@@ -1,46 +1,41 @@
-# app/ai_services/intelligent_function_dispatcher.py
+# app/ai_services/intelligent_function_dispatcher_supabase.py
 
 import json
 from typing import Dict, Any
 from google import genai
 from app.config import GEMINI_API_KEY
 from google.genai.types import GenerateContentConfig
-from sqlalchemy.orm import Session
 
-# Import all functions
-from app.ai_services.v1_intelligent_room_finder import find_buildings_rooms_function
-from app.ai_services.v2_intelligent_room_finder import filter_rooms_function
-from app.ai_functions import (
-    admin_data_query_function, 
-    schedule_showing_function,
-    filter_rooms_function,
-    schedule_event_function,
-    process_maintenance_request_function,
-    generate_insights_function,
-    create_communication_function,
-    generate_document_function,
-    manage_checklist_function
-)
+# Import Supabase versions of functions
+from app.ai_services.v1_intelligent_room_finder_supabase import find_buildings_rooms_function
+from app.ai_services.v2_intelligent_room_finder_supabase import filter_rooms_function
 
-# Create function registry
+# Import other functions (these need to be updated to Supabase too)
+# Comment out for now until they're converted
+# from app.ai_functions import (
+#     admin_data_query_function, 
+#     schedule_showing_function,
+#     schedule_event_function,
+#     process_maintenance_request_function,
+#     generate_insights_function,
+#     create_communication_function,
+#     generate_document_function,
+#     manage_checklist_function
+# )
+
+# Create function registry - only include converted functions for now
 AI_FUNCTIONS_REGISTRY = {
     "find_buildings_rooms_function": find_buildings_rooms_function,
     "filter_rooms_function": filter_rooms_function,
-    "admin_data_query_function": admin_data_query_function,
-    "schedule_showing_function": schedule_showing_function,
-    "schedule_event_function": schedule_event_function,
-    "process_maintenance_request_function": process_maintenance_request_function,
-    "generate_insights_function": generate_insights_function,
-    "create_communication_function": create_communication_function,
-    "generate_document_function": generate_document_function,
-    "manage_checklist_function": manage_checklist_function,
+    # Add other functions as they get converted
 }
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-def intelligent_function_selection(query: str, db: Session) -> Dict[str, Any]:
+def intelligent_function_selection(query: str) -> Dict[str, Any]:
     """
     Use LLM to determine which function to call and execute it directly
+    Note: Removed db parameter as Supabase functions don't need it
     """
     print(f"🤖 Analyzing query: '{query}'")
     
@@ -58,27 +53,19 @@ def intelligent_function_selection(query: str, db: Session) -> Dict[str, Any]:
     Guidelines:
     Use find_buildings_rooms_function for:
     - Basic room searches: price, view, bathroom, bed size, room amenities
+    - Simple queries about rooms without building features
 
     Use filter_rooms_function for:
     - Building features: gym, laundry, wifi, utilities, pet-friendly, security
     - Location queries: downtown, area, neighborhood, transportation
-    - Advanced room criteria: floor preferences, size requirements, availability dates
-
-    Other functions:
-    - For scheduling tours, showings, appointments → use schedule_showing_function
-    - For reports, analytics, metrics, dashboard requests → use generate_insights_function
-    - For maintenance issues, repairs, work orders → use process_maintenance_request_function
-    - For sending messages, notifications, announcements → use create_communication_function
-    - For admin data queries → use admin_data_query_function
-    - For document generation → use generate_document_function
-    - For checklist management → use manage_checklist_function
-    - For event scheduling → use schedule_event_function
+    - Advanced room criteria combined with building features
+    - Complex queries mentioning both room and building requirements
 
     Respond ONLY with the function call, NO TEXT
     Return JSON with:
     {{
         "function_name": "<exact_function_name_from_registry>",
-        "parameters": {{"query": "{query}", "additional_param": "value"}},
+        "parameters": {{"query": "{query}"}},
         "confidence": <0.0-1.0>
     }}
     
@@ -93,7 +80,7 @@ def intelligent_function_selection(query: str, db: Session) -> Dict[str, Any]:
             config=GenerateContentConfig(
                 temperature=0.1,
                 max_output_tokens=100
-                )
+            )
         )
         
         # Parse JSON response
@@ -112,10 +99,9 @@ def intelligent_function_selection(query: str, db: Session) -> Dict[str, Any]:
             # Get the function from registry
             function_to_call = AI_FUNCTIONS_REGISTRY[function_name]
             
-            # Execute function with parameters
+            # Execute function with parameters (no db needed for Supabase)
             try:
-                # Pass db session and parameters to the function
-                function_result = function_to_call(db=db, **parameters)
+                function_result = function_to_call(**parameters)
                 
                 return {
                     "success": True,
@@ -126,6 +112,8 @@ def intelligent_function_selection(query: str, db: Session) -> Dict[str, Any]:
                 
             except Exception as func_error:
                 print(f"❌ Function execution error: {func_error}")
+                import traceback
+                traceback.print_exc()
                 return {
                     "success": False,
                     "error": f"Function execution failed: {func_error}",
@@ -144,7 +132,7 @@ def intelligent_function_selection(query: str, db: Session) -> Dict[str, Any]:
         print(f"❌ LLM analysis failed: {e}")
         # Fallback to default room search
         try:
-            result = AI_FUNCTIONS_REGISTRY["find_buildings_rooms_function"](db=db, query=query)
+            result = AI_FUNCTIONS_REGISTRY["find_buildings_rooms_function"](query=query)
             return {
                 "success": True,
                 "function_called": "find_buildings_rooms_function",

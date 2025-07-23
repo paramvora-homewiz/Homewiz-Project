@@ -6,17 +6,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+print(DATABASE_URL)
 DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
-DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+# DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
     raise EnvironmentError("DATABASE_URL not set.")
 if not DATABASE_PASSWORD:
     raise EnvironmentError("DATABASE_PASSWORD not set.")
 
-SQLALCHEMY_DATABASE_URL = f"{DATABASE_URL}"
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
