@@ -22,21 +22,27 @@ def get_occupancy_rate(building_id: Optional[str] = None) -> Dict[str, Any]:
     all_rooms_response = rooms_query.execute()
     all_rooms = all_rooms_response.data
     
-    # Filter active rooms (ready to rent)
-    active_rooms = [room for room in all_rooms if room.get('ready_to_rent', False)]
+    # Filter for rooms that are ready to rent (ready_to_rent == True)
+    ready_to_rent_rooms = [room for room in all_rooms if room.get('ready_to_rent', False)]
     
     # Count room statuses
     total_rooms = len(all_rooms)
-    available_rooms = len([room for room in active_rooms if room.get('status') == 'AVAILABLE'])
-    occupied_rooms = len([room for room in active_rooms if room.get('status') != 'AVAILABLE'])
+    total_rentable_rooms = len(ready_to_rent_rooms)
     
-    # Calculate occupancy percentage
+    # Standardize status comparison - check both cases
+    available_rooms = len([room for room in ready_to_rent_rooms 
+                          if room.get('status', '').lower() == 'available'])
+    occupied_rooms = len([room for room in ready_to_rent_rooms 
+                         if room.get('status', '').lower() != 'available'])
+    
+    # Calculate occupancy percentage based on rentable rooms
     occupancy_rate = 0
-    if total_rooms > 0:
-        occupancy_rate = (occupied_rooms / total_rooms) * 100
+    if total_rentable_rooms > 0:
+        occupancy_rate = (occupied_rooms / total_rentable_rooms) * 100
     
     return {
         "total_rooms": total_rooms,
+        "total_rentable_rooms": total_rentable_rooms,
         "available_rooms": available_rooms,
         "occupied_rooms": occupied_rooms,
         "occupancy_rate": round(occupancy_rate, 2)
@@ -59,17 +65,18 @@ def get_financial_metrics(
         next_month = start_date.replace(day=28) + timedelta(days=4)
         end_date = next_month.replace(day=1) - timedelta(days=1)
     
-    # Base query for occupied rooms
-    rooms_query = supabase.table('rooms').select('*').neq('status', 'AVAILABLE').eq('ready_to_rent', True)
-    
-    # Filter by building if provided
+
+    rooms_query = supabase.table('rooms').select('*').eq('ready_to_rent', True)
     if building_id:
         rooms_query = rooms_query.eq('building_id', building_id)
-    
-    # Get occupied rooms
+
     response = rooms_query.execute()
-    occupied_rooms = response.data
-    
+    all_rooms = response.data
+
+    # Filter occupied rooms by status != 'AVAILABLE' (case-insensitive)
+    occupied_rooms = [room for room in all_rooms if str(room.get('status', '')).upper() != 'AVAILABLE']
+
+
     # Calculate total private room rent and shared room rent
     # Ensure we're working with numbers, not strings
     total_private_rent = 0
@@ -178,7 +185,7 @@ def get_lead_conversion_metrics(
         
         leads_by_status = {}
         for status in statuses:
-            count = len([lead for lead in all_leads if lead.get('status') == status])
+            count = len([lead for lead in all_leads if str(lead.get('status', '')).upper() == status])
             leads_by_status[status] = count
         
         # Calculate conversion rates
@@ -261,20 +268,20 @@ def get_maintenance_metrics(
         statuses = ["PENDING", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"]
         requests_by_status = {}
         for status in statuses:
-            count = len([req for req in all_requests if req.get('status') == status])
+            count = len([req for req in all_requests if str(req.get('status', '')).upper() == status])
             requests_by_status[status] = count
         
         # Count requests by priority
         priorities = ["LOW", "MEDIUM", "HIGH", "EMERGENCY"]
         requests_by_priority = {}
         for priority in priorities:
-            count = len([req for req in all_requests if req.get('priority') == priority])
+            count = len([req for req in all_requests if str(req.get('priority', '')).upper() == priority])
             requests_by_priority[priority] = count
         
         # Calculate average resolution time for completed requests
         avg_resolution_time = None
         completed_requests = [req for req in all_requests 
-                             if req.get('status') == 'COMPLETED' and req.get('resolved_at')]
+                             if str(req.get('status', '')).upper() == 'COMPLETED' and req.get('resolved_at')]
         
         if completed_requests:
             resolution_times = []
@@ -387,8 +394,8 @@ def get_tenant_metrics(building_id: Optional[str] = None) -> Dict[str, Any]:
     supabase = get_supabase()
     
     # Base query for all active tenants
-    tenants_query = supabase.table('tenants').select('*').eq('status', 'ACTIVE')
-    
+    # tenants_query = supabase.table('tenants').select('*').eq('status', 'ACTIVE')
+    tenants_query = supabase.table('tenants').select('*').ilike('status', 'ACTIVE')
     # Filter by building if provided
     if building_id:
         tenants_query = tenants_query.eq('building_id', building_id)
@@ -417,7 +424,7 @@ def get_tenant_metrics(building_id: Optional[str] = None) -> Dict[str, Any]:
     # Count payment statuses
     payment_statuses = {}
     for tenant in active_tenants:
-        status = tenant.get('payment_status', 'UNKNOWN')
+        status = str(tenant.get('payment_status', 'UNKNOWN')).upper()
         payment_statuses[status] = payment_statuses.get(status, 0) + 1
     
     return {

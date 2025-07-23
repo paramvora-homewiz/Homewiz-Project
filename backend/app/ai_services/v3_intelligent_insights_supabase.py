@@ -106,11 +106,11 @@ def generate_insights_function(
         try:
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
-                contents=f"""Analyze these {insight_type.lower()} metrics and provide business insights:
+                contents=f"""Analyze these {insight_type.lower()} metrics and provide very brief business insights mentioning all metrics :
                 {json.dumps(insight_data, indent=2)}
                 
-                Focus on key trends, notable metrics, and actionable recommendations.
-                Format the analysis in a business-friendly way with clear sections.""",
+                Give 4-5 sentences summary focusing on key trends, notable metrics, and actionable recommendations.
+                Be direct and format the analysis in a business-friendly way.Maximum 500 characters. """,
                 config=GenerateContentConfig(
                     temperature=0.7,
                     max_output_tokens=400
