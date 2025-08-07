@@ -1,4 +1,4 @@
-# app/ai_services/v3_intelligent_insights_sql.py
+# app/ai_services/v3_intelligent_insights_supabase.py
 
 import json
 from typing import Dict, Any, Optional
@@ -306,12 +306,13 @@ def _get_sql_requirements_for_insight(insight_type: str, context: Dict[str, Any]
             "tables": ["leads"],
             "aggregations": [
                 {"function": "COUNT", "column": "lead_id", "alias": "total_leads"},
-                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END), 0)", "alias": "approved_leads"},
-                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'EXPLORING' THEN 1 ELSE 0 END), 0)", "alias": "exploring"},
-                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'SHOWING_SCHEDULED' THEN 1 ELSE 0 END), 0)", "alias": "showing_scheduled"},
-                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'BACKGROUND_CHECK' THEN 1 ELSE 0 END), 0)", "alias": "background_check"},
-                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'REJECTED' THEN 1 ELSE 0 END), 0)", "alias": "rejected"},
-                {"function": "ROUND", "column": "(COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END), 0)::numeric / NULLIF(COUNT(lead_id), 0)::numeric * 100, 2)", "alias": "conversion_rate"}
+                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'Converted' THEN 1 ELSE 0 END), 0)", "alias": "approved_leads"},
+                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'New' THEN 1 ELSE 0 END), 0)", "alias": "new_leads"},
+                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'Interested' THEN 1 ELSE 0 END), 0)", "alias": "interested"},
+                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'Viewing Scheduled' THEN 1 ELSE 0 END), 0)", "alias": "viewing_scheduled"},
+                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'Application Submitted' THEN 1 ELSE 0 END), 0)", "alias": "application_submitted"},
+                {"function": "COALESCE(SUM", "column": "CASE WHEN status = 'Lost' THEN 1 ELSE 0 END), 0)", "alias": "lost"},
+                {"function": "ROUND", "column": "(COALESCE(SUM(CASE WHEN status = 'Converted' THEN 1 ELSE 0 END), 0)::numeric / NULLIF(COUNT(lead_id), 0)::numeric * 100, 2)", "alias": "conversion_rate"}
             ]
         }
     
@@ -349,7 +350,7 @@ def _get_sql_requirements_for_insight(insight_type: str, context: Dict[str, Any]
         }
     
     elif insight_type_upper == "TENANT":
-        filters = {"tenant_status": "ACTIVE"}
+        filters = {"tenant_status": "Active"}
         if context.get('building_id'):
             filters['building_id'] = context['building_id']
         
@@ -364,8 +365,8 @@ def _get_sql_requirements_for_insight(insight_type: str, context: Dict[str, Any]
             ],
             "aggregations": [
                 {"function": "COUNT", "column": "t.tenant_id", "alias": "total_active_tenants"},
-                {"function": "COALESCE(SUM", "column": "CASE WHEN t.payment_status = 'CURRENT' THEN 1 ELSE 0 END), 0)", "alias": "current_payments"},
-                {"function": "COALESCE(SUM", "column": "CASE WHEN t.payment_status = 'LATE' THEN 1 ELSE 0 END), 0)", "alias": "late_payments"},
+                {"function": "COALESCE(SUM", "column": "CASE WHEN t.payment_status = 'Current' THEN 1 ELSE 0 END), 0)", "alias": "current_payments"},
+                {"function": "COALESCE(SUM", "column": "CASE WHEN t.payment_status = 'Late' THEN 1 ELSE 0 END), 0)", "alias": "late_payments"},
                 {"function": "COALESCE(AVG", "column": "CASE WHEN t.lease_start_date IS NOT NULL THEN (CURRENT_DATE - t.lease_start_date::date) END), 0)", "alias": "avg_lease_duration_days"}
             ],
             "group_by": ["b.building_id", "b.building_name"] if not context.get('building_id') else None
@@ -473,18 +474,20 @@ def _format_insight_data(insight_type: str, raw_data: list, context: Dict[str, A
             return {
                 "total_leads": total_leads,
                 "approved_leads": approved,
-                "exploring": safe_int(row.get('exploring', 0)),
-                "showing_scheduled": safe_int(row.get('showing_scheduled', 0)),
-                "background_check": safe_int(row.get('background_check', 0)),
-                "rejected": safe_int(row.get('rejected', 0)),
+                "new_leads": safe_int(row.get('new_leads', 0)),
+                "interested": safe_int(row.get('interested', 0)),
+                "viewing_scheduled": safe_int(row.get('viewing_scheduled', 0)),
+                "application_submitted": safe_int(row.get('application_submitted', 0)),
+                "lost": safe_int(row.get('lost', 0)),
                 "conversion_rate": safe_float(row.get('conversion_rate', 0)),
                 "overall_conversion_rate": safe_float(row.get('conversion_rate', 0)),  # For backward compatibility
                 "funnel": {
-                    "EXPLORING": safe_int(row.get('exploring', 0)),
-                    "SHOWING_SCHEDULED": safe_int(row.get('showing_scheduled', 0)),
-                    "BACKGROUND_CHECK": safe_int(row.get('background_check', 0)),
-                    "APPROVED": approved,
-                    "REJECTED": safe_int(row.get('rejected', 0))
+                    "New": safe_int(row.get('new_leads', 0)),
+                    "Interested": safe_int(row.get('interested', 0)),
+                    "Viewing Scheduled": safe_int(row.get('viewing_scheduled', 0)),
+                    "Application Submitted": safe_int(row.get('application_submitted', 0)),
+                    "Converted": approved,
+                    "Lost": safe_int(row.get('lost', 0))
                 }
             }
         return {
@@ -602,7 +605,7 @@ def _generate_insight_summary(insight_type: str, data: Dict[str, Any]) -> str:
         return f"Total potential monthly revenue is ${potential:,.2f} with actual revenue at ${revenue:,.2f} ({realization:.1f}% realization)."
     
     elif insight_type_upper == "LEAD_CONVERSION":
-        return f"Lead conversion rate is {data.get('conversion_rate', 0):.1f}% with {data.get('approved_leads', 0)} approved out of {data.get('total_leads', 0)} total leads."
+        return f"Lead conversion rate is {data.get('conversion_rate', 0):.1f}% with {data.get('approved_leads', 0)} converted out of {data.get('total_leads', 0)} total leads."
     
     elif insight_type_upper == "MAINTENANCE":
         return f"There are {data.get('total_maintenance_requests', 0)} maintenance items with {data.get('overdue_checks', 0)} overdue checks."
@@ -719,5 +722,3 @@ def _group_by_price_range(rooms: list) -> Dict[str, int]:
             continue
     
     return ranges
-
-

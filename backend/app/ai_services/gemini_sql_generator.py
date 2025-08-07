@@ -7,6 +7,7 @@ from google import genai
 from app.config import GEMINI_API_KEY
 from google.genai.types import GenerateContentConfig
 from app.db.database_schema import get_schema_for_sql_generation, DATABASE_SCHEMA
+from app.db.database_constants import format_values_for_prompt, get_column_type, get_valid_values, validate_value
 
 class GeminiSQLGenerator:
     """
@@ -45,12 +46,15 @@ class GeminiSQLGenerator:
             Dictionary containing SQL query and metadata
         """
         
+        # Validate filters before generating SQL
+        validated_filters = self._validate_filters(filters, tables or [])
+        
         # Get schema
         schema_text = get_schema_for_sql_generation()
         
-        # Build prompt
+        # Build prompt with validated filters
         prompt = self._build_prompt(
-            filters, query_type, tables, joins, 
+            validated_filters, query_type, tables, joins, 
             aggregations, group_by, order_by, limit, schema_text
         )
         
@@ -68,6 +72,7 @@ class GeminiSQLGenerator:
             # Parse response
             result = self._parse_response(response.text)
             result['original_filters'] = filters
+            result['validated_filters'] = validated_filters
             result['query_specifications'] = {
                 'query_type': query_type,
                 'tables': tables,
@@ -92,13 +97,18 @@ class GeminiSQLGenerator:
         self, filters, query_type, tables, joins, 
         aggregations, group_by, order_by, limit, schema_text
     ) -> str:
-        """Build comprehensive prompt for SQL generation."""
+        """Build comprehensive prompt for SQL generation with valid database values."""
+        
+        # Get formatted valid values
+        valid_values = format_values_for_prompt()
         
         prompt = f"""
 You are an expert PostgreSQL SQL generator for a property management system.
 
 ## Database Schema
 {schema_text}
+
+{valid_values}
 
 ## Query Requirements
 
@@ -124,41 +134,56 @@ You are an expert PostgreSQL SQL generator for a property management system.
 
 ### Limit: {limit}
 
-## SQL Generation Rules:
+## CRITICAL SQL Generation Rules:
 
-1. **Filter Mapping**:
-   - price_min/max → private_room_rent
-   - view_types → view column (use ILIKE with OR for multiple) ("Limited View", "Street View", "Courtyard")
-   - bathroom_type → exact match
-   - bed_size → exact match
-   - room_type: "private" → maximum_people_in_room = 1, "shared" → maximum_people_in_room > 1
-   - amenities → map to boolean columns (mini_fridge, sink, work_desk, etc.)
-   - building features → wifi_included, laundry_onsite, fitness_area, etc.
-   - location/area → area column (use ILIKE) ("SOMA", "North Beach")
-   - status filters → exact match in Title Case ("Available", "Occupied", "Maintenance")
+1. **VALUE MATCHING RULES**:
+   - **Text columns with specific values**: Use EXACT values from "Valid Database Values" section
+     - Example: status = 'Available' (NOT 'available' or 'AVAILABLE')
+     - Example: bathroom_type = 'Private' (NOT 'private')
+   - **Boolean columns**: Always use 'true' or 'false' (stored as strings in database)
+     - Example: wifi_included = 'true' (NOT TRUE or true without quotes)
+   - **Numeric columns**: Use numeric comparisons with ranges provided
+     - Example: private_room_rent BETWEEN 1000 AND 2000
+   - **Text columns without listed values**: Use ILIKE for partial matching
+     - Example: building_name ILIKE '%sunset%'
 
-2. **Join Rules**:
-   - Always use table aliases (r for rooms, b for buildings, t for tenants, l for leads, o for operators)
-   - rooms ↔ buildings: via building_id
-   - tenants ↔ rooms: via room_id
-   - leads ↔ rooms: via selected_room_id
-   
-3. **Query Type Specific**:
-   - "search": Return detailed records with all relevant columns
-   - "analytics": Focus on aggregated metrics
-   - "aggregation": Must include GROUP BY if aggregations present
+2. **Filter Mapping Rules**:
+   - price_min/price_max → private_room_rent (numeric comparison)
+   - room_type: "private" → maximum_people_in_room = 1
+   - room_type: "shared" → maximum_people_in_room > 1
+   - status → MUST use exact values: 'Available', 'Occupied', 'Maintenance', 'Reserved'
+   - bathroom_type → MUST use exact values: 'Private', 'Shared', 'En-Suite'
+   - bed_size → MUST use exact values: 'Twin', 'Full', 'Queen', 'King', 'Bunk'
+   - area → MUST use exact values from list (e.g., 'SOMA', 'North Beach')
+   - Boolean filters → map to 'true'/'false' strings (e.g., building_wifi_included → wifi_included = 'true')
 
-4. **Important Data Type Considerations**:
-   - parking_info is TEXT column, NOT JSON - use ILIKE for text search
-   - rooms_interested in leads table is JSONB
-   - Most date fields are stored as TEXT
-   - Status values are Title Case, not uppercase
-   - Boolean columns use TRUE/FALSE (PostgreSQL style)
+3. **Table Aliases** (ALWAYS USE):
+   - rooms → r
+   - buildings → b
+   - tenants → t
+   - leads → l
+   - operators → o
 
-5. **Avoid These Common Errors**:
-   - Don't use json functions on TEXT columns
-   - Don't assume uppercase for status values
-   - Don't use = for text searches on descriptive fields, use ILIKE
+4. **Join Rules**:
+   - rooms ↔ buildings: r.building_id = b.building_id
+   - tenants ↔ rooms: t.room_id = r.room_id
+   - leads ↔ rooms: l.selected_room_id = r.room_id
+
+5. **Date Handling**:
+   - Date columns are stored as TEXT
+   - Use ::date casting for date comparisons
+   - Example: lease_start_date::date >= '2024-01-01'
+
+6. **AVOID These Common Errors**:
+   - ❌ Don't use lowercase for status/enum values
+   - ❌ Don't use LIKE for columns with specific valid values
+   - ❌ Don't use string 'true'/'false' for boolean columns
+   - ❌ Don't forget table aliases
+   - ❌ Don't use json operators on TEXT columns (parking_info is TEXT, not JSON)
+
+7. **Query Examples**:
+   - Correct: WHERE r.status = 'Available' AND b.wifi_included = 'true'
+   - Wrong: WHERE r.status = 'available' AND b.wifi_included = TRUE
 
 ## Response Format:
 Return ONLY a valid JSON object:
@@ -167,7 +192,7 @@ Return ONLY a valid JSON object:
     "explanation": "Brief explanation of what the query does",
     "tables_used": ["table1", "table2"],
     "joins_applied": ["description of joins"],
-    "filters_applied": ["description of filters"],
+    "filters_applied": ["description of filters with exact values used"],
     "success": true
 }}
 
@@ -247,5 +272,44 @@ Generate the SQL query now:
         tables.extend(join_matches)
         
         return list(set(tables))
-
-
+    
+    def _validate_filters(self, filters: Dict[str, Any], tables: List[str]) -> Dict[str, Any]:
+        """Validate and correct filter values before SQL generation."""
+        
+        validated_filters = {}
+        
+        for key, value in filters.items():
+            # Determine table from filter key
+            table = None
+            column = key
+            
+            # Handle prefixed filters (e.g., "room_mini_fridge" -> table="rooms", column="mini_fridge")
+            if key.startswith("room_"):
+                table = "rooms"
+                column = key[5:]  # Remove "room_" prefix
+            elif key.startswith("building_"):
+                table = "buildings"
+                column = key[9:]  # Remove "building_" prefix
+            elif key.startswith("tenant_"):
+                table = "tenants"
+                column = key[7:]  # Remove "tenant_" prefix
+            elif key.startswith("lead_"):
+                table = "leads"
+                column = key[5:]  # Remove "lead_" prefix
+            else:
+                # Try to infer table from provided tables list
+                if tables and len(tables) == 1:
+                    table = tables[0]
+            
+            if table:
+                is_valid, corrected_value = validate_value(table, column, value)
+                if not is_valid and corrected_value is not None:
+                    print(f"⚠️ Corrected {table}.{column}: '{value}' -> '{corrected_value}'")
+                    validated_filters[key] = corrected_value
+                else:
+                    validated_filters[key] = value
+            else:
+                # Can't validate without knowing the table
+                validated_filters[key] = value
+        
+        return validated_filters

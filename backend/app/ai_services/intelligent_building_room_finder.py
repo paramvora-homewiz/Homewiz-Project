@@ -1,4 +1,4 @@
-# app/ai_services/unified_room_finder.py
+# app/ai_services/intelligent_building_room_finder.py
 
 import json
 import re
@@ -8,15 +8,20 @@ from google import genai
 from app.config import GEMINI_API_KEY
 from google.genai.types import GenerateContentConfig
 from app.ai_services.gemini_sql_generator import GeminiSQLGenerator
-from app.ai_services.sql_executor import SQLExecutor  # We'll create this next
+from app.ai_services.sql_executor import SQLExecutor
+from app.db.database_constants import DATABASE_DISTINCT_VALUES, validate_value, get_valid_values
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def extract_room_and_building_criteria(query: str) -> Dict[str, Any]:
     """
     Extract both room and building criteria from natural language query using LLM.
+    Now includes valid database values in the prompt and validates extracted values.
     """
     print(f"🔍 Extracting criteria from: '{query}'")
+    
+    # Build valid values text for the prompt
+    valid_values_text = _build_valid_values_prompt()
     
     try:
         response = client.models.generate_content(
@@ -24,24 +29,31 @@ def extract_room_and_building_criteria(query: str) -> Dict[str, Any]:
             contents=f"""
             Extract room and building search criteria from this query: "{query}"
             
+            {valid_values_text}
+            
             Room criteria to look for:
-            - Price range (min/max)
-            - Room type (private/shared)
-            - Bathroom type (Private/Shared/En-Suite)
-            - Bed size (Twin/Full/Queen/King)
-            - View preferences (Street View/Courtyard/Limited View)
-            - Room amenities (mini_fridge/sink/work_desk/work_chair/heating/air_conditioning/cable_tv)
-            - Floor preferences
-            - Room size (sq_footage)
-            - Availability dates
+            - Price range (min/max) - interpret keywords:
+              * "budget"/"cheap" = $500-$1500
+              * "affordable" = $1000-$2000  
+              * "mid-range"/"moderate" = $1500-$2500
+              * "premium"/"expensive" = $2000-$3500
+              * "luxury" = $3000+
+            - Room type: "private" (maximum_people_in_room = 1) or "shared" (maximum_people_in_room > 1)
+            - Bathroom type: MUST use exact values (Private/Shared/En-Suite)
+            - Bed size: MUST use exact values (Twin/Full/Queen/King/Bunk)
+            - View preferences: MUST use exact values from list
+            - Room amenities: boolean values stored as 'true'/'false' strings (mini_fridge/sink/work_desk/heating/air_conditioning)
+            - Floor preferences (numeric range)
+            - Room size (sq_footage min/max)
+            - Status: default to "Available" unless specified otherwise
             
             Building criteria to look for:
-            - Location/area (SOMA/North Beach/Mission/etc)
-            - Building amenities (wifi_included/laundry_onsite/fitness_area/work_study_area/secure_access)
-            - Pet policy
-            - Parking
-            - Utilities included
-            - Lease terms
+            - Location/area: MUST use exact values (SOMA/North Beach/Mission etc.)
+            - Building amenities: boolean values stored as 'true'/'false' strings (wifi_included/laundry_onsite/fitness_area)
+            - Pet policy: MUST use exact values (No/Yes/Cats Only/Small Dogs Only)
+            - Parking (parking_available boolean)
+            - Utilities included (boolean)
+            - Lease terms (min_lease_term_max numeric)
             
             Return a JSON object with two sections:
             {{
@@ -86,8 +98,14 @@ def extract_room_and_building_criteria(query: str) -> Dict[str, Any]:
                 "requires_join": false
             }}
             
-            Set requires_join to true if query mentions both room and building features.
-            Only include non-null values in the response.
+            CRITICAL RULES:
+            1. Use ONLY the exact valid values provided above - case sensitive!
+            2. For price keywords, map to actual numeric ranges
+            3. For boolean amenities, use true/false or null
+            4. Set requires_join to true if query mentions BOTH room AND building features
+            5. Only include non-null values in the response
+            6. Default status to "Available" unless user specifies otherwise
+            
             Return ONLY valid JSON.
             """,
             config=GenerateContentConfig(
@@ -102,7 +120,11 @@ def extract_room_and_building_criteria(query: str) -> Dict[str, Any]:
         
         if json_match:
             criteria = json.loads(json_match.group(0))
-            print(f"✅ Criteria extracted successfully")
+            
+            # Validate and correct extracted values
+            criteria = _validate_extracted_criteria(criteria)
+            
+            print(f"✅ Criteria extracted and validated successfully")
             return criteria
         else:
             print(f"⚠️ Failed to extract JSON, using defaults")
@@ -113,9 +135,78 @@ def extract_room_and_building_criteria(query: str) -> Dict[str, Any]:
         return {"room_filters": {}, "building_filters": {}, "requires_join": False}
 
 
+def _build_valid_values_prompt() -> str:
+    """Build a concise prompt section with valid database values."""
+    prompt_parts = ["VALID DATABASE VALUES (use these EXACT values):"]
+    
+    # Room values
+    room_values = DATABASE_DISTINCT_VALUES.get("rooms", {}).get("text_columns", {})
+    prompt_parts.append("\nRoom values:")
+    prompt_parts.append(f"- Status: {', '.join(room_values.get('status', []))}")
+    prompt_parts.append(f"- Bathroom types: {', '.join(room_values.get('bathroom_type', []))}")
+    prompt_parts.append(f"- Bed sizes: {', '.join(room_values.get('bed_size', []))}")
+    prompt_parts.append(f"- Views: {', '.join(room_values.get('view', []))}")
+    
+    # Building values
+    building_values = DATABASE_DISTINCT_VALUES.get("buildings", {}).get("text_columns", {})
+    prompt_parts.append("\nBuilding values:")
+    prompt_parts.append(f"- Areas: {', '.join(building_values.get('area', []))}")
+    prompt_parts.append(f"- Pet policies: {', '.join(building_values.get('pet_friendly', []))}")
+    
+    return '\n'.join(prompt_parts)
+
+
+def _validate_extracted_criteria(criteria: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate and correct extracted criteria against known valid values."""
+    
+    # Validate room filters
+    room_filters = criteria.get('room_filters', {})
+    if room_filters:
+        # Validate text columns
+        for column in ['status', 'bathroom_type', 'bed_size']:
+            if room_filters.get(column):
+                is_valid, corrected = validate_value('rooms', column, room_filters[column])
+                if not is_valid and corrected:
+                    print(f"  Corrected room {column}: '{room_filters[column]}' -> '{corrected}'")
+                    room_filters[column] = corrected
+        
+        # Validate view_types array
+        if room_filters.get('view_types'):
+            corrected_views = []
+            for view in room_filters['view_types']:
+                is_valid, corrected = validate_value('rooms', 'view', view)
+                if corrected:
+                    corrected_views.append(corrected)
+            room_filters['view_types'] = corrected_views
+    
+    # Validate building filters
+    building_filters = criteria.get('building_filters', {})
+    if building_filters:
+        # Validate area
+        if building_filters.get('area'):
+            is_valid, corrected = validate_value('buildings', 'area', building_filters['area'])
+            if not is_valid and corrected:
+                print(f"  Corrected building area: '{building_filters['area']}' -> '{corrected}'")
+                building_filters['area'] = corrected
+        
+        # Validate pet_friendly
+        if building_filters.get('pet_friendly'):
+            is_valid, corrected = validate_value('buildings', 'pet_friendly', building_filters['pet_friendly'])
+            if not is_valid and corrected:
+                print(f"  Corrected pet_friendly: '{building_filters['pet_friendly']}' -> '{corrected}'")
+                building_filters['pet_friendly'] = corrected
+    
+    # Update criteria with validated values
+    criteria['room_filters'] = room_filters
+    criteria['building_filters'] = building_filters
+    
+    return criteria
+
+
 def prepare_sql_requirements(criteria: Dict[str, Any]) -> Dict[str, Any]:
     """
     Convert extracted criteria into SQL generator requirements.
+    Updated to ensure proper filter naming for SQL generation.
     """
     room_filters = criteria.get('room_filters', {})
     building_filters = criteria.get('building_filters', {})
@@ -134,18 +225,21 @@ def prepare_sql_requirements(criteria: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in room_filters.items():
         if value is not None:
             if key == 'room_amenities':
-                # Flatten amenities
+                # Flatten amenities - prefix with 'room_' for clarity
                 for amenity, enabled in value.items():
                     if enabled is not None:
                         all_filters[f'room_{amenity}'] = enabled
+            elif key == 'view_types' and isinstance(value, list) and value:
+                # Handle multiple view types
+                all_filters['view_types'] = value
             else:
                 all_filters[key] = value
     
-    # Building filters
+    # Building filters  
     for key, value in building_filters.items():
         if value is not None:
             if key == 'building_amenities':
-                # Flatten amenities
+                # Flatten amenities - prefix with 'building_'
                 for amenity, enabled in value.items():
                     if enabled is not None:
                         all_filters[f'building_{amenity}'] = enabled
@@ -253,4 +347,3 @@ def unified_room_search_function(query: str, **kwargs) -> Dict[str, Any]:
             "data": [],
             "query": query
         }
-
