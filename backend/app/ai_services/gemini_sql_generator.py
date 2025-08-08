@@ -135,6 +135,16 @@ You are an expert PostgreSQL SQL generator for a property management system.
 ### Limit: {limit}
 
 ## CRITICAL SQL Generation Rules:
+**COLUMN SELECTION FOR ROOM QUERIES**:
+   - When joining rooms and buildings tables,
+   - ONLY IF building columns are not already selected in query THEN:
+        - ALWAYS select these exact columns and also other building columns that are relevant:
+        - SELECT r.*, b.building_name, b.area, b.full_address, b.wifi_included, 
+                b.laundry_onsite, b.fitness_area, b.pet_friendly, b.nearby_conveniences_walk, b.public_transit_info
+        - This is MANDATORY for any query involving rooms table with buildings join
+**COLUMN SELECTION FOR BUILDING QUERIES**:
+   - SELECT b.*, 
+   - When joining rooms and buildings tables, select all room columns in those buildings for users   
 
 1. **VALUE MATCHING RULES**:
    - **Text columns with specific values**: Use EXACT values from "Valid Database Values" section
