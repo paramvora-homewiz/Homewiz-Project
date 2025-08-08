@@ -5,8 +5,23 @@ from app.endpoints import (
     notifications, scheduling, maintenance, checklists, documents,
     messages, announcements, analytics
 )
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# Add CORS middleware
+origins = [
+    "https://homewizfrontend.vercel.app",  # Your Vercel frontend
+    "http://localhost:3000",  # Keep for local development
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Existing routers
 # app.include_router(leads.router)
