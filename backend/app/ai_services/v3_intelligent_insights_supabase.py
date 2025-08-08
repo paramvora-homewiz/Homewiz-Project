@@ -140,7 +140,9 @@ def generate_insights_function(
     # Extract insight_type from query if not provided
     if not insight_type and query:
         query_lower = query.lower()
-        if any(word in query_lower for word in ['occupancy', 'occupied', 'available']):
+        if any(word in query_lower for word in ['best building', 'worst building', 'building performance', 'performing building', 'top building']):
+            insight_type = "BUILDING_PERFORMANCE"
+        elif any(word in query_lower for word in ['occupancy', 'occupied', 'available']):
             insight_type = "OCCUPANCY"
         elif any(word in query_lower for word in ['revenue', 'financial', 'money', 'income']):
             insight_type = "FINANCIAL"
@@ -205,15 +207,20 @@ def generate_insights_function(
                 "response": f"Error retrieving {insight_type} data."
             }
         
-        # Format results based on insight type
-        formatted_data = _format_insight_data(insight_type, query_result['data'], context)
-        
-        # Generate summary
+        raw_results = query_result['data']
+
+        formatted_data = _format_insight_data(insight_type, raw_results, context)
+
+                # Generate summary
         insight_summary = _generate_insight_summary(insight_type, formatted_data)
-        
-        # Get detailed analysis from Gemini
-        detailed_analysis = _generate_detailed_analysis(insight_type, formatted_data)
-        
+
+        # Pass BOTH raw results and user query for better analysis
+        detailed_analysis = _generate_detailed_analysis(
+            insight_type, 
+            raw_results,  # Pass raw SQL results instead of formatted
+            query  # Pass the original user query
+        )
+
         # Add date context to response if dates were parsed
         if start_date or end_date:
             date_context = f" for period {start_date or 'beginning'} to {end_date or 'today'}"
@@ -268,6 +275,31 @@ def _get_sql_requirements_for_insight(insight_type: str, context: Dict[str, Any]
                 {"function": "ROUND", "column": "(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(r.room_id), 0)::numeric * 100, 2)", "alias": "occupancy_rate"}
             ],
             "group_by": ["b.building_id", "b.building_name"] if not context.get('building_id') else None
+        }
+    
+
+    # Add this new case after ROOM_PERFORMANCE (around line 260):
+    elif insight_type_upper == "BUILDING_PERFORMANCE":
+        filters = {}
+        if context.get('building_id'):
+            filters['building_id'] = context['building_id']
+        
+        return {
+            "filters": filters,
+            "query_type": "analytics",
+            "tables": ["rooms", "buildings"],
+            "joins": [{"from": "rooms", "to": "buildings", "on": "building_id", "type": "INNER"}],
+            "aggregations": [
+                {"function": "COUNT", "column": "r.room_id", "alias": "total_rooms"},
+                {"function": "COUNT", "column": "CASE WHEN r.status = 'Occupied' THEN 1 END", "alias": "occupied_rooms"},
+                {"function": "COUNT", "column": "CASE WHEN r.status = 'Available' THEN 1 END", "alias": "available_rooms"},
+                {"function": "COALESCE(AVG", "column": "r.private_room_rent), 0)", "alias": "avg_rent"},
+                {"function": "COALESCE(SUM", "column": "CASE WHEN r.status = 'Occupied' THEN r.private_room_rent ELSE 0 END), 0)", "alias": "revenue"},
+                {"function": "ROUND", "column": "(COUNT(CASE WHEN r.status = 'Occupied' THEN 1 END)::numeric / NULLIF(COUNT(r.room_id), 0)::numeric * 100, 2)", "alias": "occupancy_rate"}
+            ],
+            "group_by": ["b.building_id", "b.building_name", "b.area"],
+            "order_by": [{"column": "revenue", "direction": "DESC"}],
+            "limit": 20
         }
     
     elif insight_type_upper == "FINANCIAL":
@@ -436,6 +468,28 @@ def _format_insight_data(insight_type: str, raw_data: list, context: Dict[str, A
                 "available_rooms": sum(safe_int(r.get('available_rooms', 0)) for r in raw_data),
                 "occupancy_rate": _calculate_overall_rate(raw_data, 'occupied_rooms', 'total_rooms')
             }
+        
+
+    elif insight_type_upper == "BUILDING_PERFORMANCE":
+        if raw_data:
+            # Sort by revenue to get best/worst performers
+            sorted_by_revenue = sorted(raw_data, key=lambda x: safe_float(x.get('revenue', 0)), reverse=True)
+            
+            return {
+                "total_buildings": len(raw_data),
+                "buildings": sorted_by_revenue,
+                "top_performer": sorted_by_revenue[0] if sorted_by_revenue else None,
+                "bottom_performer": sorted_by_revenue[-1] if len(sorted_by_revenue) > 1 else None,
+                "avg_occupancy_rate": _safe_average(raw_data, 'occupancy_rate'),
+                "total_revenue": sum(safe_float(r.get('revenue', 0)) for r in raw_data),
+                "avg_rent_across_buildings": _safe_average(raw_data, 'avg_rent')
+            }
+        return {
+            "total_buildings": 0,
+            "buildings": [],
+            "top_performer": None,
+            "bottom_performer": None
+        }  
     
     elif insight_type_upper == "FINANCIAL":
         if len(raw_data) == 1:
@@ -617,34 +671,42 @@ def _generate_insight_summary(insight_type: str, data: Dict[str, Any]) -> str:
     elif insight_type_upper == "ROOM_PERFORMANCE":
         return f"Analysis of {data.get('total_rooms', 0)} rooms with average rent of ${data.get('avg_rent', 0):,.2f}."
     
+    elif insight_type_upper == "BUILDING_PERFORMANCE":
+        if data.get('top_performer'):
+            top = data['top_performer']
+            return f"Best performing building is {top.get('building_name', 'Unknown')} with ${top.get('revenue', 0):,.2f} revenue and {top.get('occupancy_rate', 0):.1f}% occupancy."
+        return "Building performance analysis complete."
+    
     else:
         return f"{insight_type} data has been compiled."
 
 
-def _generate_detailed_analysis(insight_type: str, data: Dict[str, Any]) -> str:
-    """Generate detailed analysis using Gemini."""
+def _generate_detailed_analysis(insight_type: str, raw_data: list, user_query: str) -> str:
+    """Generate analysis from raw SQL results."""
     
     try:
-        # Clean data for JSON serialization
-        clean_data = json.loads(json.dumps(data, default=str))
+        # Convert to JSON-safe format
+        data_sample = raw_data[:10] if len(raw_data) > 10 else raw_data
+        clean_data = json.loads(json.dumps(data_sample, default=str))
         
-        prompt = f"""Analyze these {insight_type.lower()} metrics and provide business insights:
+        prompt = f"""
+User asked: "{user_query}"
 
-Data:
+Here are the query results:
 {json.dumps(clean_data, indent=2)}
 
-Provide a concise 3-4 sentence analysis focusing on:
-1. Key performance indicators
-2. Notable trends or concerns
-3. Actionable recommendations
+Total results: {len(raw_data)}
 
-Keep it under 400 characters and be direct."""
+Provide a direct answer to the user's question. Be specific with names, numbers, and percentages.
+Focus on what the user asked for, not generic insights.
+Keep response under 3-4 sentences.
+"""
 
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=prompt,
             config=GenerateContentConfig(
-                temperature=0.7,
+                temperature=0.3,
                 max_output_tokens=200
             )
         )
@@ -653,7 +715,8 @@ Keep it under 400 characters and be direct."""
         
     except Exception as e:
         print(f"Gemini analysis error: {e}")
-        return _generate_insight_summary(insight_type, data)
+        # Fallback to basic summary
+        return f"Found {len(raw_data)} results for your {insight_type.lower()} query."
 
 
 # Helper functions

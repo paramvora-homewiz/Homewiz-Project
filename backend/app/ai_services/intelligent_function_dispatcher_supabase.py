@@ -54,6 +54,7 @@ def intelligent_function_selection(query: str) -> Dict[str, Any]:
     - Analytics requests: occupancy rates, financial metrics, revenue analysis
     - Reports: dashboard, performance metrics, tenant statistics
     - Business insights: lead conversion, maintenance analytics
+    - Building performance: best/worst performing buildings, building comparison
     - Any query asking for statistics, metrics, analysis, or insights
     - Keywords: analytics, insights, report, metrics, statistics, occupancy, revenue, performance, how many, conversion rate, dashboard
     
@@ -71,6 +72,7 @@ def intelligent_function_selection(query: str) -> Dict[str, Any]:
     - leads, conversion, sales funnel → "LEAD_CONVERSION"
     - maintenance, repairs, issues → "MAINTENANCE"
     - room performance, best/worst rooms → "ROOM_PERFORMANCE"
+    - building performance, best/worst building → "BUILDING_PERFORMANCE"
     - tenant, resident, lease → "TENANT"
     - dashboard, overview, summary, all metrics → "DASHBOARD"
     
