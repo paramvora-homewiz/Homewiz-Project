@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  homewiz-backend:
+    build: .
+    ports:
+      - "8002:8002"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add Redis for caching if needed
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
+
+# volumes:
+#   redis_data:

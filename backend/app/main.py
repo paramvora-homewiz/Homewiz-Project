@@ -1,10 +1,13 @@
 from fastapi import FastAPI
-from app.endpoints import (
-    leads, rooms, tenants, buildings, operators, query,
-    # New endpoints
-    notifications, scheduling, maintenance, checklists, documents,
-    messages, announcements, analytics
-)
+from app.endpoints import query
+
+# Conditional imports for other endpoints (commented out to avoid database connection issues)
+# from app.endpoints import (
+#     leads, rooms, tenants, buildings, operators,
+#     # New endpoints
+#     notifications, scheduling, maintenance, checklists, documents,
+#     messages, announcements, analytics
+# )
 
 app = FastAPI()
 
