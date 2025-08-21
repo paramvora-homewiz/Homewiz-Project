@@ -212,11 +212,10 @@ def prepare_sql_requirements(criteria: Dict[str, Any]) -> Dict[str, Any]:
     building_filters = criteria.get('building_filters', {})
     requires_join = criteria.get('requires_join', False)
     
-    # Determine tables needed
-    tables = ['rooms']
-    if requires_join or any(building_filters.values()):
-        tables.append('buildings')
-        requires_join = True
+    # ALWAYS include buildings table for room searches to get building info
+    # This is the key change - force join for any room search
+    tables = ['rooms', 'buildings']
+    requires_join = True  # Always join to get building info
     
     # Prepare filters for SQL generator
     all_filters = {}
@@ -246,15 +245,13 @@ def prepare_sql_requirements(criteria: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 all_filters[f'building_{key}'] = value
     
-    # Prepare joins if needed
-    joins = []
-    if requires_join:
-        joins.append({
-            "from": "rooms",
-            "to": "buildings",
-            "on": "building_id",
-            "type": "INNER"
-        })
+    # Prepare joins - ALWAYS include this for room searches
+    joins = [{
+        "from": "rooms",
+        "to": "buildings",
+        "on": "building_id",
+        "type": "INNER"
+    }]
     
     # Default ordering
     order_by = [
@@ -266,7 +263,7 @@ def prepare_sql_requirements(criteria: Dict[str, Any]) -> Dict[str, Any]:
         "filters": all_filters,
         "query_type": "search",
         "tables": tables,
-        "joins": joins if joins else None,
+        "joins": joins,
         "order_by": order_by,
         "limit": 15
     }
