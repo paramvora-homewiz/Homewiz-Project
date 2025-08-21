@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+
 from app.endpoints import (
     leads, rooms, tenants, buildings, operators, query,
     # New endpoints
