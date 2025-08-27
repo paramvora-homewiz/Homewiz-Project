@@ -12,7 +12,7 @@ app = FastAPI()
 
 # Add CORS middleware
 origins = [
-    "https://homewiz-frontend-one.vercel.app",
+    "https://homewizfrontend.vercel.app/"
     "http://localhost:3000",  # Keep for local development
 ]
 
