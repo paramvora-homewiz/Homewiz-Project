@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 from app.db.supabase_connection import get_supabase
 import logging
 import pandas as pd
+import re
 
 class SQLExecutor:
     """
@@ -35,8 +36,11 @@ class SQLExecutor:
             
             # Log query (be careful in production)
             logging.info(f"Executing SQL via Supabase RPC: {sql[:100]}...")
-            
-            # Execute via RPC
+            # if sql.upper().startswith('UPDATE'):
+            #     return self._execute_update_native(sql)  # Use native .update()
+            # else:
+            #     # return self._execute_rpc(sql)  # Use RPC for SELECT
+            #     # Execute via RPC
             response = self.supabase.rpc('execute_sql', {'query_text': sql}).execute()
             
             # Parse response
@@ -76,6 +80,119 @@ class SQLExecutor:
                 "row_count": 0,
                 "columns": [],
                 "error": f"Error: {str(e)}"
+            }
+        
+    def _execute_update_native(self, sql: str) -> Dict[str, Any]:
+        """
+        Execute UPDATE query using native Supabase methods.
+        """
+        try:
+            # Parse UPDATE statement
+            # Pattern: UPDATE table_name SET column = value WHERE condition
+            update_pattern = r"UPDATE\s+[\"']?(\w+)[\"']?\s+SET\s+(.+?)\s+WHERE\s+(.+?)$"
+            match = re.match(update_pattern, sql, re.IGNORECASE | re.DOTALL)
+            
+            if not match:
+                return {
+                    "success": False,
+                    "data": [],
+                    "row_count": 0,
+                    "error": "UPDATE without WHERE clause not allowed for safety"
+                }
+            
+            table_name = match.group(1)
+            set_clause = match.group(2)
+            where_clause = match.group(3)
+            
+            # Parse SET clause
+            updates = {}
+            # Handle multiple assignments separated by commas
+            set_parts = re.split(r',(?![^\']*\'(?:[^\']*\'[^\']*\')*[^\']*$)', set_clause)
+            
+            for part in set_parts:
+                # Extract column = value
+                set_match = re.match(r"\s*[\"']?(\w+)[\"']?\s*=\s*(.+)", part.strip())
+                if set_match:
+                    col = set_match.group(1)
+                    val = set_match.group(2).strip()
+                    
+                    # Remove quotes if present
+                    if (val.startswith("'") and val.endswith("'")) or (val.startswith('"') and val.endswith('"')):
+                        val = val[1:-1]
+                    
+                    # Handle boolean values
+                    if val.lower() in ['true', 'false']:
+                        val = val.lower() == 'true'
+                    # Handle null
+                    elif val.upper() == 'NULL':
+                        val = None
+                    # Handle numeric values
+                    elif val.replace('.', '').replace('-', '').isdigit():
+                        if '.' in val:
+                            val = float(val)
+                        else:
+                            val = int(val)
+                    
+                    updates[col] = val
+            
+            # Parse WHERE clause - handle simple equality for now
+            where_match = re.match(r"\s*[\"']?(\w+)[\"']?\s*=\s*(.+)", where_clause.strip())
+            if not where_match:
+                return {
+                    "success": False,
+                    "data": [],
+                    "row_count": 0,
+                    "error": "Could not parse WHERE clause"
+                }
+            
+            where_col = where_match.group(1)
+            where_val = where_match.group(2).strip()
+            
+            # Remove quotes if present
+            if (where_val.startswith("'") and where_val.endswith("'")) or (where_val.startswith('"') and where_val.endswith('"')):
+                where_val = where_val[1:-1]
+            
+            # Handle numeric values in WHERE
+            if where_val.replace('.', '').replace('-', '').isdigit():
+                if '.' in where_val:
+                    where_val = float(where_val)
+                else:
+                    where_val = int(where_val)
+            
+            # Log the update operation
+            logging.info(f"Executing native update on {table_name}: {updates} WHERE {where_col} = {where_val}")
+            
+            # Execute update with correct Supabase syntax
+            # IMPORTANT: Apply filter BEFORE calling update()
+            response = self.supabase.table(table_name).eq(where_col, where_val).update(updates).execute()
+            
+            # Return result
+            if hasattr(response, 'data') and response.data is not None:
+                return {
+                    "success": True,
+                    "data": response.data if isinstance(response.data, list) else [response.data],
+                    "row_count": len(response.data) if isinstance(response.data, list) else 1,
+                    "columns": list(response.data[0].keys()) if response.data and isinstance(response.data, list) and len(response.data) > 0 else [],
+                    "error": None
+                }
+            else:
+                return {
+                    "success": True,
+                    "data": [],
+                    "row_count": 0,
+                    "columns": [],
+                    "error": None
+                }
+                
+        except Exception as e:
+            logging.error(f"Native update error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "data": [],
+                "row_count": 0,
+                "error": f"Update failed: {str(e)}"
             }
     
     def execute_select(self, sql: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
