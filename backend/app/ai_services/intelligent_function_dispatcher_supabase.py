@@ -6,7 +6,7 @@ from google import genai
 from app.config import GEMINI_API_KEY
 from google.genai.types import GenerateContentConfig
 
-
+from app.ai_services.update_handler import update_function_sync
 from app.ai_services.intelligent_building_room_finder import unified_room_search_function
 from app.ai_services.v3_intelligent_insights_supabase import generate_insights_function
 from app.ai_services.hallucination_free_query_processor import HallucinationFreeQueryProcessor
@@ -24,6 +24,10 @@ def universal_query_function(query: str, **kwargs) -> Dict[str, Any]:
     Handles any natural language query with guaranteed accuracy.
     """
     import asyncio
+    import nest_asyncio
+    
+    # Allow nested event loops
+    nest_asyncio.apply()
     
     # Default user context
     user_context = {
@@ -56,19 +60,26 @@ def universal_query_function(query: str, **kwargs) -> Dict[str, Any]:
 
 # Create function registry with updated functions
 AI_FUNCTIONS_REGISTRY = {
-    "unified_room_search_function": unified_room_search_function,  
-    "generate_insights_function": generate_insights_function,
+    # "unified_room_search_function": unified_room_search_function,  
+    # "generate_insights_function": generate_insights_function,
     "universal_query_function": universal_query_function,  # NEW: Universal query function
+    "update_function": update_function_sync,
     # Add other functions
 }
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-def intelligent_function_selection(query: str) -> Dict[str, Any]:
+def intelligent_function_selection(query: str, user_context: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Use LLM to determine which function to call and execute it directly
     """
     print(f"🤖 Analyzing query: '{query}'")
+    print(f"📋 User context received: {user_context}")  # Add debug
+    
+    # Default user context if not provided
+    if user_context is None:
+        user_context = {"role": "user", "permissions": ["basic"]}
+
     
     # Get available function names for the prompt
     available_functions = list(AI_FUNCTIONS_REGISTRY.keys())
@@ -81,26 +92,13 @@ def intelligent_function_selection(query: str) -> Dict[str, Any]:
     
     Available functions: {functions_list}
     
-    Guidelines:
-    
-    Use unified_room_search_function for:
-    - ANY room or property search queries
-    - Queries about available rooms, apartments, or properties
-    - Searches with criteria like price, location, amenities, features
-    - Questions about room details, building features, or availability
-    - Keywords: room, apartment, property, available, find, search, show, looking for, need
-    - This handles BOTH room-specific AND building-specific features
-    
-    Use generate_insights_function for:
-    - Analytics requests: occupancy rates, financial metrics, revenue analysis
-    - Reports: dashboard, performance metrics, tenant statistics
-    - Business insights: lead conversion, maintenance analytics
-    - Building performance: best/worst performing buildings, building comparison
-    - Any query asking for statistics, metrics, analysis, or insights
-    - Keywords: analytics, insights, report, metrics, statistics, occupancy, revenue, performance, how many, conversion rate, dashboard
-    
+    Guidelines:    
+
     Use universal_query_function for:
+    - ANY query that reads, searches, or analyzes data
     - ANY query that doesn't fit the above categories
+    - Keywords: find, show, list, search, display, what, how many, get, view, report, analyze
+    - This handles ALL read operations including room searches and analytics
     - Complex queries requiring multiple tables
     - Custom queries not covered by specific functions
     - Queries about tenants, leads, maintenance, scheduling, etc.
@@ -108,29 +106,42 @@ def intelligent_function_selection(query: str) -> Dict[str, Any]:
     - Keywords: tenant, lead, maintenance, schedule, event, document, message, notification, checklist
     - This is the most flexible and powerful option for any query
     
+    Use update_function for:
+    - ANY query that modifies, changes, or updates existing data
+    - Room updates: status changes, price adjustments, amenity updates, maintenance flags
+    - Tenant updates: payment status, lease dates, contact info, move-out dates
+    - Lead updates: status progression, contact info, conversion tracking
+    - Building updates: amenity changes, policy updates
+    - Keywords: update, change, modify, set, mark, edit, fix, correct, adjust, make, convert, switch, turn, assign, revise
+    - Examples: 
+      * "change room 101 to occupied" 
+      * "mark tenant John Doe's payment as late"
+      * "update room 205 rent to $2500"
+      * "set building A as pet-friendly"
+      * "mark all rooms in building B for maintenance"
+      * "convert lead Sarah to approved status"
+      * "fix the wrong rent amount for room 303"
+      * "assign room 102 to maintenance status"
+      * "revise tenant lease end date to next month"
+      * "make room 201 available"
+      * "switch Sarah's lead status to viewing scheduled"
+    - DO NOT use for: creating new records, deleting records, or reading/searching data
+    - This handles ALL update/modification operations on existing records
+    
     Respond ONLY with the function call, NO TEXT
     Return JSON with:
     {{
         "function_name": "<exact_function_name_from_registry>",
-        "parameters": {{"query": "{query}"}},
+        "parameters": {{
+            "query": "{query}",
+            "user_context": {{
+                "role": "user",
+                "permissions": ["basic"]
+            }}
+        }},
         "confidence": <0.0-1.0>
     }}
-    
-    For generate_insights_function, also extract the insight_type from keywords:
-    - occupancy, availability, occupied → "OCCUPANCY"
-    - revenue, financial, money, income → "FINANCIAL"
-    - leads, conversion, sales funnel → "LEAD_CONVERSION"
-    - maintenance, repairs, issues → "MAINTENANCE"
-    - room performance, best/worst rooms → "ROOM_PERFORMANCE"
-    - building performance, best/worst building → "BUILDING_PERFORMANCE"
-    - tenant, resident, lease → "TENANT"
-    - dashboard, overview, summary, all metrics → "DASHBOARD"
-    
     Examples:
-    - "show me available rooms under 2000" → unified_room_search_function
-    - "find rooms in downtown with gym" → unified_room_search_function
-    - "what's the occupancy rate?" → generate_insights_function with insight_type: "OCCUPANCY"
-    - "revenue report for last month" → generate_insights_function with insight_type: "FINANCIAL"
     - "show all tenants with late payments" → universal_query_function
     - "find maintenance requests by priority" → universal_query_function
     - "list leads in showing scheduled status" → universal_query_function
@@ -157,6 +168,9 @@ def intelligent_function_selection(query: str) -> Dict[str, Any]:
         result = json.loads(result_text)
         function_name = result.get("function_name")
         parameters = result.get("parameters", {"query": query})
+        
+        parameters["query"] = query
+        parameters["user_context"] = user_context
         
         # Validate and execute function
         if function_name in AI_FUNCTIONS_REGISTRY:
@@ -197,25 +211,31 @@ def intelligent_function_selection(query: str) -> Dict[str, Any]:
     
     except Exception as e:
         print(f"❌ LLM analysis failed: {e}")
-        # Fallback to room search for property queries
-        if any(word in query.lower() for word in ['room', 'apartment', 'property', 'available', 'find']):
-            try:
-                result = AI_FUNCTIONS_REGISTRY["unified_room_search_function"](query=query)
-                return {
-                    "success": True,
-                    "function_called": "unified_room_search_function",
-                    "result": result,
-                    "confidence": 0.5,
-                    "note": "Fallback function used due to LLM error"
-                }
-            except Exception as fallback_error:
-                return {
-                    "success": False,
-                    "error": f"Both LLM and fallback failed: {e}, {fallback_error}"
-                }
-        else:
+        # Fallback to universal query for read operations
+        try:
+            # Simple keyword check for fallback
+            update_keywords = ['update', 'change', 'modify', 'set', 'mark', 'edit', 'fix', 'correct']
+            is_update = any(keyword in query.lower() for keyword in update_keywords)
+            
+            if is_update:
+                function_name = "update_function"
+            else:
+                function_name = "universal_query_function"
+            
+            result = AI_FUNCTIONS_REGISTRY[function_name](
+                query=query,
+                user_context=user_context  
+            )
+            
+            return {
+                "success": True,
+                "function_called": function_name,
+                "result": result,
+                "confidence": 0.5,
+                "note": "Fallback function selection due to LLM error"
+            }
+        except Exception as fallback_error:
             return {
                 "success": False,
-                "error": f"LLM analysis failed: {e}"
+                "error": f"Both LLM and fallback failed: {e}, {fallback_error}"
             }
-

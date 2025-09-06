@@ -25,13 +25,15 @@ async def process_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     query = query_request.get("query")
     user_context = query_request.get("user_context", {})
     
+    
     if not query:
         raise HTTPException(status_code=400, detail="Query text is required.")
 
     print(f"Received User Query: {query}")
+    print(f"User Context: {user_context}") 
 
     # Use LLM to intelligently select the function (no db parameter needed)
-    result = intelligent_function_selection(query)
+    result = intelligent_function_selection(query,user_context)
     
     logger.info(f"🎯 Function execution result: {result}")
     

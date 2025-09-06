@@ -27,10 +27,10 @@ class HallucinationFreeSQLGenerator:
         """Build whitelist of allowed operations per table."""
         return {
             "rooms": ["SELECT", "UPDATE"],
-            "buildings": ["SELECT"],
+            "buildings": ["SELECT", "UPDATE"],  # Added UPDATE
             "tenants": ["SELECT", "INSERT", "UPDATE"],
             "leads": ["SELECT", "INSERT", "UPDATE"],
-            "operators": ["SELECT"],
+            "operators": ["SELECT", "UPDATE"],  # Added UPDATE
             "maintenance_requests": ["SELECT", "INSERT", "UPDATE"],
             "scheduled_events": ["SELECT", "INSERT", "UPDATE"],
             "announcements": ["SELECT", "INSERT", "UPDATE"],
@@ -99,7 +99,6 @@ class HallucinationFreeSQLGenerator:
                 "error": str(e),
                 "explanation": f"Failed to generate SQL: {str(e)}"
             }
-    
     def _format_exact_schema(self) -> str:
         """Format schema with EXACT names to prevent hallucination."""
         formatted_tables = []
@@ -231,6 +230,10 @@ Generate SQL that answers the user's question using ONLY the schema provided.
         
         # Areas (exact case as in database)
         common_values.append("buildings.area: ['SOMA', 'Downtown', 'Mission', 'Hayes Valley', 'Marina']")
+
+         # Room ID pattern explanation
+        common_values.append("rooms.room_id: Pattern 'BLDG_XXX_RXXX' (e.g., 'BLDG_1080_FOLSOM_R011')")
+        common_values.append("rooms.room_number: Numeric only (e.g., 101, 102, 205)")
         
         return "\n".join(common_values)
     
@@ -282,11 +285,12 @@ Generate SQL that answers the user's question using ONLY the schema provided.
         """Fallback parsing for non-JSON responses."""
         # Try to extract SQL from the response - more robust pattern
         sql_patterns = [
+            r'UPDATE.*?(?:WHERE.*?)?(?:;|$)',  # UPDATE statements
             r'SELECT.*?(?:LIMIT\s+\d+|ORDER BY|GROUP BY|$)',  # SELECT with optional clauses
             r'SELECT.*?(?:;|$)',  # SELECT ending with semicolon or end
             r'SELECT.*',  # Any SELECT statement
         ]
-        
+
         sql = None
         for pattern in sql_patterns:
             sql_match = re.search(pattern, response_text, re.IGNORECASE | re.DOTALL)
