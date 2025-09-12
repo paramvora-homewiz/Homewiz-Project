@@ -1,4 +1,4 @@
-# app/ai_services/intelligent_function_dispatcher_supabase.py
+# Fixed version for intelligent_function_dispatcher_supabase.py
 
 import json
 from typing import Dict, Any
@@ -11,10 +11,6 @@ from app.ai_services.intelligent_building_room_finder import unified_room_search
 from app.ai_services.v3_intelligent_insights_supabase import generate_insights_function
 from app.ai_services.hallucination_free_query_processor import HallucinationFreeQueryProcessor
 
-# Import other functions (if they exist and are converted to Supabase)
-# from app.ai_services.schedule_showing_function import schedule_showing_function
-# from app.ai_services.other_functions import other_function
-
 # Initialize the universal query processor
 universal_processor = HallucinationFreeQueryProcessor()
 
@@ -22,12 +18,10 @@ def universal_query_function(query: str, **kwargs) -> Dict[str, Any]:
     """
     Universal query function using hallucination-free processor.
     Handles any natural language query with guaranteed accuracy.
+    Modified to work without nest_asyncio.
     """
     import asyncio
-    import nest_asyncio
-    
-    # Allow nested event loops
-    nest_asyncio.apply()
+    from concurrent.futures import ThreadPoolExecutor
     
     # Default user context
     user_context = {
@@ -38,9 +32,18 @@ def universal_query_function(query: str, **kwargs) -> Dict[str, Any]:
     
     # Process query using the universal processor
     try:
-        # Run async function in sync context
-        loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(universal_processor.process_query(query, user_context))
+        # Run async function in a thread pool to avoid event loop conflicts
+        def run_async():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(universal_processor.process_query(query, user_context))
+            finally:
+                loop.close()
+        
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(run_async)
+            result = future.result()
         
         return {
             "success": result.success,
