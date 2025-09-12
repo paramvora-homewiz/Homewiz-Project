@@ -130,69 +130,138 @@ class HallucinationFreeSQLGenerator:
         return "\n".join(formatted_tables)
     
     def _build_constrained_prompt(
-        self, 
-        query: str, 
-        schema: str, 
-        allowed_tables: List[str],
-        context: Dict
-    ) -> str:
-        """Build prompt that makes hallucination impossible."""
-        
-        # Get common values for validation
-        common_values = self._get_common_values()
-        
-        return f"""
-You are a SQL generator for a property management database. You MUST follow these EXACT constraints:
+            self, 
+            query: str, 
+            schema: str, 
+            allowed_tables: List[str],
+            context: Dict
+        ) -> str:
+            """Build prompt that makes hallucination impossible."""
+            
+            # Get common values for validation
+            common_values = self._get_common_values()
+            
+            return f"""
+    You are a SQL generator for a property management database. You MUST follow these EXACT constraints:
 
-NATURAL LANGUAGE QUERY: "{query}"
+    NATURAL LANGUAGE QUERY: "{query}"
 
-USER PERMISSIONS: Can access tables: {allowed_tables}
-USER ROLE: {context.get('role', 'user')}
+    USER PERMISSIONS: Can access tables: {allowed_tables}
+    USER ROLE: {context.get('role', 'user')}
 
-EXACT DATABASE SCHEMA (YOU MUST USE THESE EXACT NAMES):
-{schema}
+    EXACT DATABASE SCHEMA (YOU MUST USE THESE EXACT NAMES):
+    {schema}
 
-VALID COLUMN VALUES (USE ONLY THESE):
-{common_values}
+    VALID COLUMN VALUES (USE ONLY THESE):
+    {common_values}
 
-STRICT RULES:
-1. Use ONLY the table names listed above: {allowed_tables}
-2. Use ONLY the column names shown in the schema
-3. Use ONLY the valid values listed for enum columns
-4. ALWAYS use table aliases (r for rooms, b for buildings, t for tenants, l for leads, o for operators)
-5. ALWAYS include explicit JOIN conditions
-6. NEVER use columns or tables not in the schema
-7. NEVER invent column names or values
-8. Return realistic result estimates
-9. Use proper PostgreSQL syntax
-10. Include LIMIT clause for large result sets
-11. For property searches: ALWAYS include r.room_id, r.room_number, r.private_room_rent, r.status, b.building_name, b.area
-12. For analytics: ALWAYS include building_name and calculated metrics
-13. For tenant queries: ALWAYS include tenant information and related room/building data
-14. For building name matching: Use LIKE with % wildcards (e.g., '1080 Folsom%' matches '1080 Folsom Residences')
-15. NEVER use semicolons in the middle of SQL statements
+    STRICT RULES:
+    1. Use ONLY the table names listed above: {allowed_tables}
+    2. Use ONLY the column names shown in the schema
+    3. Use ONLY the valid values listed for enum columns
+    4. ALWAYS use table aliases (r for rooms, b for buildings, t for tenants, l for leads, o for operators)
+    5. ALWAYS include explicit JOIN conditions
+    6. NEVER use columns or tables not in the schema
+    7. NEVER invent column names or values
+    8. Return realistic result estimates
+    9. Use proper PostgreSQL syntax
+    10. Include LIMIT clause for large result sets
+    11. For property searches: ALWAYS include r.room_id, r.room_number, r.private_room_rent, r.status, b.building_name, b.area
+    12. For analytics: ALWAYS include building_name and calculated metrics
+    13. For tenant queries: ALWAYS include tenant information and related room/building data
+    14. For building name matching: Use LIKE with % wildcards (e.g., '1080 Folsom%' matches '1080 Folsom Residences')
+    15. NEVER use semicolons in the middle of SQL statements
 
-REQUIRED OUTPUT FORMAT (JSON):
-{{
-    "sql": "Valid PostgreSQL query using ONLY the schema above",
-    "explanation": "Brief explanation of what the query does",
-    "estimated_rows": "Realistic estimate of rows returned (number)",
-    "tables_used": ["list", "of", "tables", "referenced"],
-    "query_type": "SELECT|INSERT|UPDATE|DELETE"
-}}
+    CRITICAL COLUMN SELECTION RULES:
+    Based on the query type, you MUST include these columns in your SELECT statement:
 
-EXAMPLE VALID QUERY:
-SELECT r.room_id, r.room_number, r.private_room_rent, b.building_name, b.area
-FROM rooms r 
-JOIN buildings b ON r.building_id = b.building_id 
-WHERE r.status = 'AVAILABLE' 
-AND r.private_room_rent < 2000
-AND b.area = 'Downtown'
-ORDER BY r.private_room_rent 
-LIMIT 20;
+    FOR PROPERTY/ROOM QUERIES (when searching for rooms, apartments, properties, or showing available rooms):
+    - REQUIRED: r.room_id, r.room_number, r.private_room_rent, r.status, r.building_id, b.building_name, b.building_id
+    - STRONGLY RECOMMENDED: r.sq_footage, r.view, r.bathroom_type, r.bed_type, r.floor_number, b.street, b.full_address, b.wifi_included, b.laundry_onsite, b.fitness_area, b.pet_friendly
 
-Generate SQL that answers the user's question using ONLY the schema provided.
-"""
+    FOR BUILDING REVENUE/ANALYTICS QUERIES:
+    - If grouping by building: SELECT b.building_id, b.building_name, b.area, [your calculated metrics like SUM, COUNT, etc.]
+    - If showing individual rooms with revenue: Include ALL room columns as listed above
+    - NEVER just select building_name and a metric - always include building_id and area at minimum
+
+    FOR TENANT QUERIES:
+    - REQUIRED: t.tenant_id, t.tenant_name, t.tenant_email, t.phone, t.status, r.room_id, r.room_number, b.building_name
+    - RECOMMENDED: t.lease_start_date, t.lease_end_date, t.booking_type, t.payment_status, t.deposit_amount
+
+    FOR LEAD QUERIES:
+    - REQUIRED: l.lead_id, l.email, l.status, l.interaction_count
+    - RECOMMENDED: l.selected_room_id, l.planned_move_in, l.planned_move_out, l.budget_min, l.budget_max
+
+    CRITICAL: Generate exactly ONE SQL query that best answers the user's question. If they ask for multiple things, either:
+    - Use UNION ALL to combine results
+    - Or use window functions to get both in one query
+
+    REQUIRED OUTPUT FORMAT (JSON):
+    {{
+        "sql": "Valid PostgreSQL query using ONLY the schema above",
+        "explanation": "Brief explanation of what the query does",
+        "estimated_rows": "Realistic estimate of rows returned (number)",
+        "tables_used": ["list", "of", "tables", "referenced"],
+        "query_type": "SELECT|INSERT|UPDATE|DELETE"
+    }}
+
+    EXAMPLE QUERIES WITH PROPER COLUMN SELECTION:
+
+    1. Property Search Query:
+    SELECT r.room_id, r.room_number, r.private_room_rent, r.status, r.sq_footage, r.view, 
+        r.bathroom_type, r.bed_type, r.floor_number,
+        b.building_id, b.building_name, b.area, b.street, b.full_address,
+        b.wifi_included, b.laundry_onsite, b.fitness_area, b.pet_friendly
+    FROM rooms r 
+    JOIN buildings b ON r.building_id = b.building_id 
+    WHERE r.status = 'Available' 
+    AND r.private_room_rent < 2000
+    AND b.area = 'Downtown'
+    ORDER BY r.private_room_rent 
+    LIMIT 20;
+
+    2. Building Revenue Query (Grouped):
+    SELECT b.building_id, b.building_name, b.area, b.street, b.full_address,
+        COUNT(r.room_id) as total_rooms,
+        SUM(CASE WHEN r.status = 'Available' THEN 1 ELSE 0 END) as available_rooms,
+        SUM(CASE WHEN r.status = 'Available' THEN r.private_room_rent ELSE 0 END) AS projected_revenue
+    FROM buildings b
+    LEFT JOIN rooms r ON b.building_id = r.building_id
+    GROUP BY b.building_id, b.building_name, b.area, b.street, b.full_address
+    ORDER BY projected_revenue DESC
+    LIMIT 10;
+
+    3. Multiple Results Query (Highest and Lowest Occupancy):
+    SELECT * FROM (
+        SELECT b.building_id, b.building_name, b.area,
+            COUNT(r.room_id) as total_rooms,
+            SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) as occupied_rooms,
+            ROUND(CAST(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) AS NUMERIC) / COUNT(r.room_id) * 100, 2) as occupancy_rate,
+            'Highest' as category
+        FROM buildings b
+        JOIN rooms r ON b.building_id = r.building_id
+        GROUP BY b.building_id, b.building_name, b.area
+        ORDER BY occupancy_rate DESC
+        LIMIT 1
+    ) 
+    UNION ALL
+    SELECT * FROM (
+        SELECT b.building_id, b.building_name, b.area,
+            COUNT(r.room_id) as total_rooms,
+            SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) as occupied_rooms,
+            ROUND(CAST(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) AS NUMERIC) / COUNT(r.room_id) * 100, 2) as occupancy_rate,
+            'Lowest' as category
+        FROM buildings b
+        JOIN rooms r ON b.building_id = r.building_id
+        GROUP BY b.building_id, b.building_name, b.area
+        ORDER BY occupancy_rate ASC
+        LIMIT 1
+    );
+
+    REMEMBER: The frontend expects specific columns to render results. Missing essential columns will cause "Unknown" or "$0" to appear in the UI!
+
+    Generate SQL that answers the user's question using ONLY the schema provided.
+    """
     
     def _get_common_values(self) -> str:
         """Get common enum values for validation."""
