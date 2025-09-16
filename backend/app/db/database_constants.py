@@ -334,3 +334,177 @@ def format_values_for_prompt() -> str:
                 output.append(f"  - {column}: {range_info.get('min', 0)} to {range_info.get('max', 'unlimited')}")
     
     return '\n'.join(output)
+
+    # ----------------------------------------------------------------------
+# Date & Timestamp column metadata and helpers (added for LLM SQL accuracy)
+# ----------------------------------------------------------------------
+
+# Columns that are stored as TEXT but represent dates.
+# Format assumes ISO 'YYYY-MM-DD' unless otherwise noted. Provide concrete examples
+# so the LLM copies the pattern and uses CASTs in SQL.
+DATE_TEXT_COLUMNS = {
+    "leads": {
+        "last_contacted": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-06-18", "2025-07-25", "2025-06-13"],
+            "notes": "Stored as TEXT; cast to DATE for filtering."
+        },
+        "next_follow_up": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-10-05", "2025-10-12"],
+            "notes": "Stored as TEXT; cast to DATE for filtering."
+        },
+        "planned_move_in": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-10-20", "2025-10-03", "2025-10-08"],
+            "notes": "Stored as TEXT; cast to DATE for filtering."
+        },
+        "planned_move_out": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2026-06-04", "2026-07-06", "2026-05-04"],
+            "notes": "Stored as TEXT; cast to DATE for filtering."
+        },
+        "preferred_move_in_date": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-09-30"],
+            "notes": "Stored as TEXT; cast to DATE for filtering."
+        },
+        "showing_dates": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-09-18"],
+            "notes": "Stored as TEXT; may contain multiple dates separated by commas; split and cast each to DATE for filtering."
+        }
+    },
+    "buildings": {
+        "last_renovation": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2020", "2018"],
+            "notes": "Year only as TEXT. Cast to INTEGER for comparisons."
+        },
+        "year_built": {
+            "format": "YYYY",
+            "examples": ["1995", "2008"],
+            "notes": "Stored as TEXT; year only. Cast to INTEGER for comparisons or build DATE literal like DATE(CONCAT(year_built,'-01-01'))."
+        }
+    },
+    "rooms": {
+        "available_from": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-09-01", "2025-10-15"],
+            "notes": "Stored as TEXT; room availability date. Cast to DATE for filtering."
+        },
+        "booked_from": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-02-10", "2025-03-01"],
+            "notes": "Stored as TEXT; booking start date. Cast to DATE for filtering."
+        },
+        "booked_till": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-03-15", "2025-04-01"],
+            "notes": "Stored as TEXT; booking end date. Cast to DATE for filtering."
+        },
+        "last_check": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-08-20", "2025-09-10"],
+            "notes": "Stored as TEXT; last room inspection date. Cast to DATE for filtering."
+        },
+        "last_renovation_date": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2024-11-30", "2019-06-15"],
+            "notes": "Stored as TEXT; last renovation date. Cast to DATE for filtering."
+        }
+    },
+    "tenants": {
+        "last_payment_date": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-09-01", "2025-08-01"],
+            "notes": "Stored as TEXT; last rent payment. Cast to DATE for filtering."
+        },
+        "lease_start_date": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2024-06-01", "2025-01-15"],
+            "notes": "Stored as TEXT; lease start date. Cast to DATE for filtering."
+        },
+        "lease_end_date": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-05-31", "2026-06-01"],
+            "notes": "Stored as TEXT; lease end date. Cast to DATE for filtering."
+        },
+        "next_payment_date": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-10-01", "2025-11-01"],
+            "notes": "Stored as TEXT; next scheduled rent payment. Cast to DATE for filtering."
+        }
+    }
+}
+
+# Columns that are native TIMESTAMP / TIMESTAMPTZ in the DB (no casting needed for comparisons).
+TIMESTAMP_COLUMNS = {
+    "leads": {
+        "created_at": {
+            "type": "timestamptz",
+            "examples": ["2025-02-01 12:30:00+00"],
+            "notes": "Timestamp with time zone; compare directly."
+        },
+        "last_modified": {
+            "type": "timestamptz",
+            "examples": ["2025-07-22 09:15:00+00"],
+            "notes": "Timestamp with time zone; compare directly."
+        }
+    },
+    "buildings": {
+        "created_at": {
+            "type": "timestamptz",
+            "examples": ["2025-01-12 10:30:00+00"],
+            "notes": "Timestamp with time zone; compare directly."
+        },
+        "last_modified": {
+            "type": "timestamptz",
+            "examples": ["2025-07-16 11:00:00+00"],
+            "notes": "Timestamp with time zone; compare directly."
+        }
+    },
+    "rooms": {
+        "last_modified": {
+            "type": "timestamptz",
+            "examples": ["2025-07-16 11:00:00+00"],
+            "notes": "Timestamp with time zone; compare directly."
+        }
+    },
+    "tenants": {
+        "created_at": {
+            "type": "timestamptz",
+            "examples": ["2025-02-01 12:30:00+00"],
+            "notes": "Timestamp with time zone; compare directly."
+        },
+        "last_modified": {
+            "type": "timestamptz",
+            "examples": ["2025-07-22 09:15:00+00"],
+            "notes": "Timestamp with time zone; compare directly."
+        }
+    }
+}
+
+def format_date_values_for_prompt() -> str:
+    """A cheatsheet section the LLM can copy for date handling."""
+    lines = ["\n## Date columns stored as TEXT (cast before filtering)\n"]
+    for table, cols in DATE_TEXT_COLUMNS.items():
+        lines.append(f"- {table}:")
+        for col, meta in cols.items():
+            ex = ", ".join(meta.get("examples", [])[:3]) or "e.g., 2025-09-01"
+            lines.append(f"  - {col} (format {meta['format']}; examples: {ex})")
+    lines.append("""\
+\n### SQL date filtering cheatsheet
+PostgreSQL:
+  WHERE TO_DATE(<col>,'YYYY-MM-DD') >= DATE '2025-09-01'
+MySQL:
+  WHERE STR_TO_DATE(<col>,'%Y-%m-%d') < DATE '2025-10-01'
+SQLite:
+  WHERE DATE(<col>) BETWEEN DATE('2025-09-01') AND DATE('2025-09-30')
+""")
+    lines.append("\n## Native timestamp columns (compare directly)\n")
+    for table, cols in TIMESTAMP_COLUMNS.items():
+        names = ", ".join(cols.keys())
+        if names:
+            lines.append(f"- {table}: {names}")
+    return "\n".join(lines)

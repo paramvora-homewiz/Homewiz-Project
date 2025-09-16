@@ -151,6 +151,13 @@ class HallucinationFreeSQLGenerator:
 
     EXACT DATABASE SCHEMA (YOU MUST USE THESE EXACT NAMES):
     {schema}
+    SEMANTIC RULES FOR CORRECT TABLE SELECTION:
+    - Leads table: ONLY for prospects/potential tenants who haven't moved in yet
+    - Tenants table: For anyone who has/had a lease (moved in, currently living, moved out)
+    - "moved in" → search tenants.lease_start_date
+    - "moved out" → search tenants with status='Inactive' or lease_end_date passed
+    - "late payments" → tenants table, not leads
+    - Never search for historical tenant data in leads table
 
     VALID COLUMN VALUES (USE ONLY THESE):
     {common_values}
@@ -171,6 +178,12 @@ class HallucinationFreeSQLGenerator:
     13. For tenant queries: ALWAYS include tenant information and related room/building data
     14. For building name matching: Use LIKE with % wildcards (e.g., '1080 Folsom%' matches '1080 Folsom Residences')
     15. NEVER use semicolons in the middle of SQL statements
+    16. When using LEFT JOINs, expect NULL values for unmatched records (e.g., tenant_id will be NULL for non-converted leads)
+    17. Use COALESCE or CASE statements to provide default values where appropriate
+    18. Column aliases (using AS) are encouraged for clarity - they help the frontend understand the data
+    19. For year-only TEXT columns (buildings.last_renovation, buildings.year_built): Use CAST(column AS INTEGER) for comparisons
+    20. NEVER use TO_DATE with 'YYYY' format - PostgreSQL doesn't support it
+    
 
     CRITICAL COLUMN SELECTION RULES:
     Based on the query type, you MUST include these columns in your SELECT statement:
@@ -191,7 +204,7 @@ class HallucinationFreeSQLGenerator:
     FOR LEAD QUERIES:
     - REQUIRED: l.lead_id, l.email, l.status, l.interaction_count
     - RECOMMENDED: l.selected_room_id, l.planned_move_in, l.planned_move_out, l.budget_min, l.budget_max
-
+    
     CRITICAL: Generate exactly ONE SQL query that best answers the user's question. If they ask for multiple things, either:
     - Use UNION ALL to combine results
     - Or use window functions to get both in one query
@@ -258,6 +271,22 @@ class HallucinationFreeSQLGenerator:
         LIMIT 1
     );
 
+    4. Date filtering on TEXT date columns:
+    SELECT t.tenant_name, t.lease_end_date, t.payment_status
+    FROM tenants t
+    WHERE TO_DATE(t.lease_end_date, 'YYYY-MM-DD') > CURRENT_DATE  -- Cast TEXT to DATE
+    AND TO_DATE(t.lease_end_date, 'YYYY-MM-DD') < CURRENT_DATE + INTERVAL '30 days'
+    AND t.payment_status = 'Current'  -- Exact case match
+    ORDER BY TO_DATE(t.lease_end_date, 'YYYY-MM-DD');
+
+    5. Lead date queries:
+    SELECT l.email, l.status, l.planned_move_in
+    FROM leads l
+    WHERE l.status = 'Converted'
+    AND TO_DATE(l.planned_move_in, 'YYYY-MM-DD')
+        BETWEEN CURRENT_DATE - INTERVAL '3 months' AND CURRENT_DATE
+    ORDER BY TO_DATE(l.planned_move_in, 'YYYY-MM-DD') DESC;
+
     REMEMBER: The frontend expects specific columns to render results. Missing essential columns will cause "Unknown" or "$0" to appear in the UI!
 
     Generate SQL that answers the user's question using ONLY the schema provided.
@@ -265,46 +294,22 @@ class HallucinationFreeSQLGenerator:
     
     def _get_common_values(self) -> str:
         """Get common enum values for validation."""
-        common_values = []
+        from app.db.database_constants import format_values_for_prompt, format_date_values_for_prompt
         
-        # Room status (exact case as in database)
-        common_values.append("rooms.status: ['Available', 'Occupied', 'Maintenance', 'Reserved']")
+        # Get the formatted values from database constants
+        values = format_values_for_prompt()
+        date_info = format_date_values_for_prompt()
         
-        # Tenant status (exact case as in database)
-        common_values.append("tenants.status: ['Active', 'Pending', 'Terminated', 'Expired']")
+        # Add pattern explanations that aren't in database constants
+        pattern_info = [
+            "\n## ID and Number Patterns:",
+            "rooms.room_id: Pattern 'BLDG_XXX_RXXX' (e.g., 'BLDG_1080_FOLSOM_R011')",
+            "rooms.room_number: Numeric only (e.g., 101, 102, 205)"
+        ]
         
-        # Lead status (exact case as in database)
-        common_values.append("leads.status: ['New', 'Interested', 'Application Submitted', 'Background Check', 'Lease Requested', 'Approved', 'Rejected', 'Exploring', 'Showing Scheduled']")
-        
-        # Payment status (exact case as in database)
-        common_values.append("tenants.payment_status: ['Current', 'Late', 'Pending', 'Overdue']")
-        
-        # Bathroom type (exact case as in database)
-        common_values.append("rooms.bathroom_type: ['Private', 'Shared', 'Semi-Private']")
-        
-        # Bed size (exact case as in database)
-        common_values.append("rooms.bed_size: ['Twin', 'Full', 'Queen', 'King']")
-        
-        # Booking type (exact case as in database)
-        common_values.append("tenants.booking_type: ['Long-term', 'Short-term', 'Flexible']")
-        
-        # Operator type (exact case as in database)
-        common_values.append("operators.operator_type: ['LEASING_AGENT', 'MAINTENANCE', 'BUILDING_MANAGER', 'ADMIN']")
-        
-        # Pet friendly (exact case as in database)
-        common_values.append("buildings.pet_friendly: ['No pets', 'Cats only', 'Small Pets', 'All Pets']")
-        
-        # Common kitchen (exact case as in database)
-        common_values.append("buildings.common_kitchen: ['None', 'Basic', 'Full', 'Premium']")
-        
-        # Areas (exact case as in database)
-        common_values.append("buildings.area: ['SOMA', 'Downtown', 'Mission', 'Hayes Valley', 'Marina']")
-
-         # Room ID pattern explanation
-        common_values.append("rooms.room_id: Pattern 'BLDG_XXX_RXXX' (e.g., 'BLDG_1080_FOLSOM_R011')")
-        common_values.append("rooms.room_number: Numeric only (e.g., 101, 102, 205)")
-        
-        return "\n".join(common_values)
+        # Combine all information
+        pattern_section = '\n'.join(pattern_info)
+        return f"{values}\n\n{pattern_section}\n\n{date_info}"
     
     def _get_allowed_tables(self, permissions: List[str]) -> List[str]:
         """Get allowed tables based on user permissions."""
