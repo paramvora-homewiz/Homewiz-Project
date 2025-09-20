@@ -3,6 +3,7 @@
 from typing import Dict, Any, List, Union, Optional
 from pydantic import BaseModel, Field
 from app.db.database_schema import DATABASE_SCHEMA
+from app.ai_services.text_response_formatter import TextResponseFormatter
 import json
 
 class FrontendResponse(BaseModel):
@@ -88,11 +89,15 @@ class ResultVerifier:
         # Analytics patterns (check first to avoid conflicts)
         if any(word in query_lower for word in ['occupancy', 'rate', 'revenue', 'analytics', 'report', 'metrics', 'statistics', 'calculate', 'total', 'average', 'sum']):
             return "analytics"
-        
+        sql_lower = sql_query.lower()
+        if any(func in sql_lower for func in ['count(', 'sum(', 'avg(', 'max(', 'min(']):
+            return "analytics"
         # Tenant management patterns
         if any(word in query_lower for word in ['tenant', 'resident', 'lease', 'payment', 'active tenant', 'late payment']):
             return "tenant_management"
-        
+        # Tour Scheduling Patterns:
+        if any(word in query_lower for word in ['tour', 'slot', 'viewing', 'appointment', 'schedule']):
+            return "tour_scheduling"
         # Lead management patterns
         if any(word in query_lower for word in ['lead', 'prospect', 'showing', 'conversion', 'interested']):
             return "lead_management"
@@ -206,6 +211,8 @@ class ResultVerifier:
         
         if result_type == "property_search":
             return [self._structure_property_result(row) for row in raw_data]
+        elif result_type == "tour_scheduling":
+            return [self._structure_tour_result(row) for row in raw_data]
         elif result_type == "analytics":
             return [self._structure_analytics_result(row) for row in raw_data]
         elif result_type == "tenant_management":
@@ -244,7 +251,21 @@ class ResultVerifier:
                 "pet_friendly": row.get("pet_friendly", "No")
             }
         }
-    
+    def _structure_tour_result(self, row: Dict) -> Dict[str, Any]:
+        """Structure tour scheduling results."""
+        return {
+            "slot_id": row.get("slot_id") or row.get("tour_id"),
+            "slot_date": row.get("slot_date") or row.get("scheduled_date"),
+            "slot_time": row.get("slot_time") or row.get("scheduled_time"),
+            "room_id": row.get("room_id"),
+            "room_number": row.get("room_number"),
+            "building_name": row.get("building_name"),
+            "is_available": row.get("is_available") or (row.get("status") == "Scheduled"),
+            "duration": row.get("slot_duration") or row.get("duration_minutes", 30),
+            "status": row.get("status"),
+            "tour_type": row.get("tour_type")
+    }
+       
     def _structure_analytics_result(self, row: Dict) -> Dict[str, Any]:
         """Structure analytics results."""
         # Handle different types of analytics data
@@ -267,6 +288,12 @@ class ResultVerifier:
                     "occupied_rooms": row.get("occupied_rooms"),
                     "total_revenue": row.get("total_revenue")
                 }
+            }
+        if 'scheduled_tours' in row and 'completed_tours' in row:
+            return {
+                "scheduled_tours": row.get("scheduled_tours", 0),
+                "completed_tours": row.get("completed_tours", 0),
+                "type": "tour_summary"
             }
         else:
             # Generic analytics
@@ -368,12 +395,53 @@ class ResultVerifier:
         }
     
     async def _generate_response_message(
+    self,
+    structured_data: List[Dict],
+    original_query: str,
+    user_context: Dict[str, Any]
+) -> str:
+        """Generate contextual response message using LLM formatter."""
+        
+        # Use the new text formatter for all responses
+        formatter = TextResponseFormatter()
+        
+        # Determine result type from the structured data
+        result_type = "generic"
+        if structured_data:
+            # Check first item to determine type
+            first_item = structured_data[0]
+            if "room_id" in first_item and "building_name" in first_item:
+                result_type = "property_search"
+            elif "metric_name" in first_item or "metric_value" in first_item:
+                result_type = "analytics"
+            elif "tenant_id" in first_item:
+                result_type = "tenant_management"
+            elif "lead_id" in first_item:
+                result_type = "lead_management"
+            elif "slot_id" in first_item or "tour_id" in first_item:
+                result_type = "tour_scheduling"
+            elif "request_id" in first_item:
+                result_type = "maintenance"
+        
+        try:
+            # Generate formatted response
+            formatted_message = await formatter.format_response(
+                data=structured_data,
+                original_query=original_query,
+                result_type=result_type
+            )
+            return formatted_message
+        except Exception as e:
+            # Fallback to original simple message generation
+            return self._generate_simple_response_message(structured_data, original_query, result_type)
+
+    def _generate_simple_response_message(
         self,
         structured_data: List[Dict],
         original_query: str,
-        user_context: Dict[str, Any]
+        result_type: str
     ) -> str:
-        """Generate contextual response message."""
+        """Fallback simple message generation (original logic)."""
         
         if not structured_data:
             return f"No results found for '{original_query}'. Try adjusting your search criteria."
@@ -381,25 +449,19 @@ class ResultVerifier:
         count = len(structured_data)
         query_lower = original_query.lower()
         
-        # Generate contextual message based on query type
+        # Original message generation logic
         if any(word in query_lower for word in ['room', 'apartment', 'property', 'available']):
             return f"Found {count} property{'ies' if count != 1 else ''} matching your criteria."
-        
         elif any(word in query_lower for word in ['occupancy', 'rate']):
             return f"Retrieved occupancy data for {count} building{'s' if count != 1 else ''}."
-        
         elif any(word in query_lower for word in ['tenant', 'resident']):
             return f"Found {count} tenant{'s' if count != 1 else ''} matching your criteria."
-        
         elif any(word in query_lower for word in ['lead', 'prospect']):
             return f"Retrieved {count} lead{'s' if count != 1 else ''} from the system."
-        
         elif any(word in query_lower for word in ['maintenance', 'repair']):
             return f"Found {count} maintenance request{'s' if count != 1 else ''}."
-        
         elif any(word in query_lower for word in ['revenue', 'financial', 'money']):
             return f"Generated financial report with {count} data point{'s' if count != 1 else ''}."
-        
         else:
             return f"Retrieved {count} result{'s' if count != 1 else ''} for your query."
     

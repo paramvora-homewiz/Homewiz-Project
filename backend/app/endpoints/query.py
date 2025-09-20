@@ -23,9 +23,13 @@ async def process_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     Now uses Supabase client instead of SQLAlchemy.
     """
     query = query_request.get("query")
-    user_context = query_request.get("user_context", {})
-    
-    
+    # user_context = query_request.get("user_context", {})
+    user_context = {
+        "permissions": ["admin"],
+        "role": "admin",
+        "user_id": query_request.get("user_id", "admin_user")
+    }
+        
     if not query:
         raise HTTPException(status_code=400, detail="Query text is required.")
 
@@ -36,6 +40,37 @@ async def process_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     result = intelligent_function_selection(query,user_context)
     
     logger.info(f"🎯 Function execution result: {result}")
+    
+    return result
+
+@router.post("/lead-query/", response_model=Dict[str, Any])
+async def process_lead_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process queries from leads with restricted table access.
+    Same as /query/ but automatically sets lead permissions.
+    """
+    query = query_request.get("query")
+    lead_id = query_request.get("lead_id", "anonymous_lead")
+    
+    # Force lead-specific context
+    user_context = {
+        "permissions": ["lead"],
+        "role": "lead",
+        "user_id": lead_id
+    }
+    
+    if not query:
+        raise HTTPException(status_code=400, detail="Query text is required.")
+
+    print(f"🔍 Lead Query Endpoint - Query: {query}")
+    print(f"🔍 Lead Query Endpoint - User Context: {user_context}")
+    print(f"🔍 Lead Query Endpoint - Permissions: {user_context.get('permissions')}")
+
+
+    # Use LLM to intelligently select the function
+    result = intelligent_function_selection(query, user_context)
+    
+    logger.info(f"🎯 Lead query execution result: {result}")
     
     return result
 

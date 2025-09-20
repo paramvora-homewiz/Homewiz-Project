@@ -47,9 +47,11 @@ class HallucinationFreeSQLGenerator:
     ) -> Dict[str, Any]:
         """Generate SQL with strict hallucination prevention."""
         
-        if user_context is None:
-            user_context = {"permissions": ["basic"], "role": "user"}
-        
+        # if user_context is None:
+        #     user_context = {"permissions": ["basic"], "role": "user"}
+        print(f"🔧 SQL Generator - Query: {natural_query}")
+        print(f"🔧 SQL Generator - User context: {user_context}")
+        print(f"🔧 SQL Generator - Permissions: {user_context.get('permissions') if user_context else 'None'}")
         # Rate limiting to prevent API quota issues
         current_time = time.time()
         time_since_last_request = current_time - self.last_request_time
@@ -59,6 +61,7 @@ class HallucinationFreeSQLGenerator:
         # Get exact schema
         exact_schema = self._format_exact_schema()
         allowed_tables = self._get_allowed_tables(user_context.get("permissions", []))
+        print(f"🔧 SQL Generator - Allowed tables: {allowed_tables}")
         
         # Build bulletproof prompt
         generation_prompt = self._build_constrained_prompt(
@@ -75,12 +78,33 @@ class HallucinationFreeSQLGenerator:
                 contents=generation_prompt,
                 config=GenerateContentConfig(
                     temperature=0.0,  # Zero creativity
-                    max_output_tokens=800
+                    # max_output_tokens=800
                 )
             )
             
             # Parse and validate
             sql_result = self._parse_response(response.text)
+            # if sql_result.get("sql"):
+            #     categorical_validation = await self._validate_categorical_values(
+            #         sql_result["sql"], sql_result
+            #     )
+            
+            #     if not categorical_validation["valid"]:
+            #         # Add validation errors to result
+            #         sql_result["success"] = False
+            #         sql_result["error"] = "Categorical value validation failed"
+            #         sql_result["validation_errors"] = categorical_validation["errors"]
+            #         sql_result["validation_score"] = categorical_validation["score"]
+                    
+            #         # Attempt regeneration with specific feedback
+            #         return await self._regenerate_with_corrections(
+            #             natural_query, 
+            #             sql_result, 
+            #             categorical_validation["errors"], 
+            #             exact_schema, 
+            #             allowed_tables
+            #         )
+
             validation_result = await self._validate_generated_sql(
                 sql_result, exact_schema, allowed_tables
             )
@@ -162,6 +186,57 @@ class HallucinationFreeSQLGenerator:
     VALID COLUMN VALUES (USE ONLY THESE):
     {common_values}
 
+    PENALTY ENFORCEMENT SYSTEM:
+    - Using ANY value in WHERE/GROUP BY clauses that is NOT listed in the VALID COLUMN VALUES above = AUTOMATIC FAILURE
+    - Each violation = -100 points (your query will be immediately rejected)
+    - Only queries with 0 violations (perfect score) will be executed
+    - The system tracks EVERY value used in WHERE and GROUP BY clauses
+    - Hallucinated values = SEVERE PENALTY + QUERY REGENERATION
+    - NEVER invent values - if unsure, check VALID COLUMN VALUES section
+    - For categorical columns (status, payment_status, etc.), ONLY use exact values from valid common_values
+    When user asks for a value NOT in the database:
+    1. DO NOT add filters for non-existent values
+    2. Return results without that filter
+    3. NEVER hallucinate values hoping they exist
+
+    ENFORCEMENT RULE:
+    Before adding ANY WHERE/GROUP BY condition:
+    1. Check if the value exists in VALID COLUMN VALUES
+    2. If NOT found → DO NOT add that filter
+    3. Return what IS available rather than no results
+
+    WHERE CLAUSE RULES (MANDATORY):
+    - Every WHERE condition on categorical columns MUST use values from VALID COLUMN VALUES if  not listed and you use it = -100 points
+    - Pattern: WHERE column = 'value' OR LIKE '%value%'→ 'value' MUST exist in the valid values list above if not listed still filtered in SQL query = -100 points
+    - For status columns: ONLY use the exact status values listed
+    - For boolean columns: ONLY use true/false (lowercase)
+    - For date columns: Follow the date format rules in VALID COLUMN VALUES
+    - PENALTY: Using any non-listed value = -100 points = IMMEDIATE REJECTION
+    - For columns with valid values listed: ONLY use = or IN(), NEVER use LIKE
+    - nearby_conveniences_walk, security_features = categorical, NOT free text
+
+    GROUP BY RULES (MANDATORY):
+    - Can ONLY GROUP BY columns that have valid values listed above
+    - When grouping by categorical columns, the query will only return groups that exist in valid values
+    - NEVER assume additional values exist beyond those listed
+    - If filtering grouped results, WHERE/HAVING must also use only valid values
+    - PENALTY: Grouping by non-categorical columns without aggregation = -50 points
+    - PENALTY: Using non-existent values in HAVING clause = -100 points
+
+    CRITICAL FOR WHERE/GROUP BY:
+    - Before writing any WHERE or GROUP BY clause, CHECK the VALID COLUMN VALUES section
+    - If a value is not explicitly listed there, DO NOT USE IT
+    - When in doubt, use only the values shown above
+    - The database ONLY contains the values listed - nothing else exists
+
+    Penalty SCORING:
+    - Starting score: 100 points
+    - Each forbidden value used: -100 points  
+    - Score < 100 = QUERY REJECTED + MUST REGENERATE
+    - Only score = 100 queries will be executed
+
+    REMEMBER: The VALID COLUMN VALUES section is your ONLY source of truth for categorical values!
+
     STRICT RULES:
     1. Use ONLY the table names listed above: {allowed_tables}
     2. Use ONLY the column names shown in the schema
@@ -175,7 +250,14 @@ class HallucinationFreeSQLGenerator:
     10. Include LIMIT clause for large result sets
     11. For property searches: ALWAYS include r.room_id, r.room_number, r.private_room_rent, r.status, b.building_name, b.area
     12. For analytics: ALWAYS include building_name and calculated metrics
-    13. For tenant queries: ALWAYS include tenant information and related room/building data
+    13. SMART COLUMN SELECTION based on query intent:
+    - If querying tour_availability_slots: ALWAYS include room_id, slot_date, slot_time, is_available
+    - If joining with rooms: ALWAYS add r.room_number, r.private_room_rent, r.status  
+    - If joining with buildings: ALWAYS add b.building_name, b.area
+    - If joining with leads: ALWAYS add l.lead_id, l.email, l.status
+    - If joining with operators: ALWAYS add o.name, o.operator_type
+    - NEVER select only 1-2 columns unless specifically counting/aggregating
+    - For ANY user-facing query: include enough columns to make results meaningful
     14. For building name matching: Use LIKE with % wildcards (e.g., '1080 Folsom%' matches '1080 Folsom Residences')
     15. NEVER use semicolons in the middle of SQL statements
     16. When using LEFT JOINs, expect NULL values for unmatched records (e.g., tenant_id will be NULL for non-converted leads)
@@ -183,7 +265,19 @@ class HallucinationFreeSQLGenerator:
     18. Column aliases (using AS) are encouraged for clarity - they help the frontend understand the data
     19. For year-only TEXT columns (buildings.last_renovation, buildings.year_built): Use CAST(column AS INTEGER) for comparisons
     20. NEVER use TO_DATE with 'YYYY' format - PostgreSQL doesn't support it
-    
+    21. For date comparisons with tour tables:
+    - tour_availability_slots.slot_date is TEXT - use: TO_DATE(slot_date, 'YYYY-MM-DD')
+    - tour_bookings.scheduled_date is TEXT - use: TO_DATE(scheduled_date, 'YYYY-MM-DD')
+    - Example: WHERE TO_DATE(tas.slot_date, 'YYYY-MM-DD') >= CURRENT_DATE
+    - NEVER compare TEXT dates directly with DATE functions
+    22. COMMON SENSE DATE HANDLING:
+    - When user says month/day without year, check context:
+      * If date already passed this year → assume next year
+      * If date is upcoming → assume current year
+    - "Sept 23" when today is Sept 17, 2025 → use 2025-09-23
+    - "Jan 15" when today is Sept 17, 2025 → use 2026-01-15
+    - "yesterday", "today", "tomorrow" → relative to CURRENT_DATE
+    - Always prefer FUTURE dates over PAST dates unless explicitly historical 
 
     CRITICAL COLUMN SELECTION RULES:
     Based on the query type, you MUST include these columns in your SELECT statement:
@@ -319,9 +413,90 @@ class HallucinationFreeSQLGenerator:
             return ["rooms", "buildings", "tenants", "leads", "operators", "maintenance_requests", "scheduled_events"]
         elif "agent" in permissions:
             return ["rooms", "buildings", "leads", "scheduled_events", "announcements"]
+        elif "lead" in permissions:
+            return ["rooms", "buildings"]  # Lead access: can read these 3 tables
         else:
             return ["rooms", "buildings"]  # Basic user access
-    
+    # async def _validate_categorical_values(
+    #     self, 
+    #     sql: str, 
+    #     sql_result: Dict[str, Any]
+    # ) -> Dict[str, Any]:
+    #     """
+    #     Validate that all categorical values in WHERE/GROUP BY clauses exist in database constants.
+    #     """
+    #     from app.db.database_constants import DATABASE_DISTINCT_VALUES
+        
+    #     validation_result = {
+    #         "valid": True,
+    #         "errors": [],
+    #         "score": 100
+    #     }
+        
+    #     # Extract WHERE clause values using regex
+    #     # Pattern to find column = 'value' or column IN ('value1', 'value2')
+    #     where_pattern = r"(\w+)\.(\w+)\s*=\s*'([^']+)'|(\w+)\.(\w+)\s+IN\s*\(([^)]+)\)"
+        
+    #     for match in re.finditer(where_pattern, sql, re.IGNORECASE):
+    #         if match.group(1):  # Single value comparison
+    #             table = match.group(1)
+    #             column = match.group(2)
+    #             value = match.group(3).strip()
+                
+    #             # Check if this table/column combo has valid values
+    #             if table in DATABASE_DISTINCT_VALUES:
+    #                 text_columns = DATABASE_DISTINCT_VALUES[table].get("text_columns", {})
+    #                 if column in text_columns and text_columns[column]:  # Has valid values list
+    #                     valid_list = text_columns[column]
+    #                     if value not in valid_list:
+    #                         validation_result["valid"] = False
+    #                         validation_result["score"] -= 100
+    #                         validation_result["errors"].append(
+    #                             f"Invalid value '{value}' for {table}.{column}. Allowed: {valid_list[:3]}..."
+    #                         )
+            
+    #         elif match.group(4):  # IN clause
+    #             table = match.group(4)
+    #             column = match.group(5)
+    #             values_str = match.group(6).strip()
+    #             values = [v.strip().strip("'\"") for v in values_str.split(',')]
+                
+    #             if table in DATABASE_DISTINCT_VALUES:
+    #                 text_columns = DATABASE_DISTINCT_VALUES[table].get("text_columns", {})
+    #                 if column in text_columns and text_columns[column]:
+    #                     valid_list = text_columns[column]
+    #                     for value in values:
+    #                         if value not in valid_list:
+    #                             validation_result["valid"] = False
+    #                             validation_result["score"] -= 100
+    #                             validation_result["errors"].append(
+    #                                 f"Invalid value '{value}' for {table}.{column}"
+    #                             )
+        
+    #     # Also check LIKE patterns for categorical columns
+    #     like_pattern = r"(\w+)\.(\w+)\s+(?:LIKE|ILIKE)\s+'%([^%]+)%'"
+        
+    #     for match in re.finditer(like_pattern, sql, re.IGNORECASE):
+    #         table = match.group(1)
+    #         column = match.group(2)
+    #         search_term = match.group(3)
+            
+    #         if table in DATABASE_DISTINCT_VALUES:
+    #             text_columns = DATABASE_DISTINCT_VALUES[table].get("text_columns", {})
+    #             if column in text_columns and text_columns[column]:
+    #                 # Check if search term appears in ANY valid value
+    #                 valid_list = text_columns[column]
+    #                 term_found = any(search_term in val for val in valid_list)
+                    
+    #                 if not term_found:
+    #                     validation_result["valid"] = False
+    #                     validation_result["score"] -= 100
+    #                     validation_result["errors"].append(
+    #                         f"Search term '{search_term}' not found in any valid value for {table}.{column}"
+    #                     )
+        
+    #     return validation_result
+
     def _parse_response(self, response_text: str) -> Dict[str, Any]:
         """Parse the LLM response into structured format."""
         try:
@@ -357,6 +532,22 @@ class HallucinationFreeSQLGenerator:
     
     def _fallback_parse(self, response_text: str) -> Dict[str, Any]:
         """Fallback parsing for non-JSON responses."""
+            # Check if this is a permission-related response
+        permission_keywords = [
+            "permission", "not allowed", "can't access", "cannot access",
+            "restricted", "unauthorized", "don't have access", "requires elevated"
+        ]
+        
+        response_lower = response_text.lower()
+        if any(keyword in response_lower for keyword in permission_keywords):
+            return {
+                "sql": None,
+                "success": False,
+                "error": "Permission Denied",
+                "explanation": response_text.strip(),
+                "is_permission_error": True,
+                "query_type": "PERMISSION_DENIED"
+            }
         # Try to extract SQL from the response - more robust pattern
         sql_patterns = [
             r'UPDATE.*?(?:WHERE.*?)?(?:;|$)',  # UPDATE statements
@@ -431,14 +622,33 @@ class HallucinationFreeSQLGenerator:
                 validation_result["valid"] = False
                 validation_result["errors"].append(f"Dangerous SQL operation detected: {pattern}")
         
-        # Check for table permissions (warn but don't fail)
+        # # Check for table permissions (warn but don't fail)
+        # used_tables = []
+        # for table_name in self.schema["tables"].keys():
+        #     if table_name.lower() in sql.lower():
+        #         used_tables.append(table_name)
+        #         if table_name not in allowed_tables:
+        #             validation_result["warnings"].append(f"Table '{table_name}' not in allowed list")
+        
+            # STRICT TABLE PERMISSION CHECK - FAIL IF UNAUTHORIZED TABLES ARE USED
         used_tables = []
+        unauthorized_tables = []
+    
+        # Check all tables mentioned in the SQL
         for table_name in self.schema["tables"].keys():
-            if table_name.lower() in sql.lower():
+            if re.search(rf'\b{table_name}\b', sql, re.IGNORECASE):
                 used_tables.append(table_name)
                 if table_name not in allowed_tables:
-                    validation_result["warnings"].append(f"Table '{table_name}' not in allowed list")
+                    unauthorized_tables.append(table_name)
         
+        # If unauthorized tables are found, fail the validation
+        if unauthorized_tables:
+            validation_result["valid"] = False
+            validation_result["errors"].append(
+                f"Unauthorized table access: {', '.join(unauthorized_tables)}. "
+                f"User with role '{self.schema.get('user_role', 'user')}' can only access: {', '.join(allowed_tables)}"
+            )
+
         # If no tables found, add a warning
         if not used_tables:
             validation_result["warnings"].append("No recognized tables found in SQL")
@@ -468,8 +678,10 @@ Previous SQL generation failed with these errors:
 Original query: "{natural_query}"
 
 Please regenerate the SQL following these corrections:
-1. Use only allowed tables: {allowed_tables}
-2. Follow the exact schema provided
+1. You can ONLY access these tables: {allowed_tables}
+    - Do NOT generate any SQL accessing forbidden tables
+    - Explain that the user lacks permission to access that data
+2. Follow the exact schema provided and use exact values from the VALID COLUMN VALUES section
 3. Avoid any dangerous operations
 4. Ensure proper syntax
 
