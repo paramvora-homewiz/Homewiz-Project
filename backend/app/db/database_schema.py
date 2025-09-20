@@ -34,7 +34,57 @@ DATABASE_SCHEMA = {
                 {"type": "one_to_many", "target": "tenants", "foreign_key": "operator_id"}
             ]
         },
-        
+        "tour_bookings": {
+            "description": "Tour scheduling and booking records",
+            "columns": {
+                "tour_id": {"type": "TEXT", "primary_key": True},
+                "lead_id": {"type": "TEXT", "foreign_key": "leads.lead_id"},
+                "room_id": {"type": "TEXT", "foreign_key": "rooms.room_id"},
+                "operator_id": {"type": "BIGINT", "foreign_key": "operators.operator_id"},
+                "scheduled_date": {"type": "TEXT", "nullable": False},
+                "scheduled_time": {"type": "TEXT", "nullable": False},
+                "duration_minutes": {"type": "INTEGER", "default": 30},
+                "status": {"type": "TEXT", "nullable": False},
+                "tour_type": {"type": "TEXT", "default": "Virtual"},
+                "google_meet_url": {"type": "TEXT", "nullable": True},
+                "google_calendar_link": {"type": "TEXT", "nullable": True},
+                "virtual_tour_video_url": {"type": "TEXT", "nullable": True},
+                "notes": {"type": "TEXT", "nullable": True},
+                "special_requests": {"type": "TEXT", "nullable": True},
+                "confirmation_sent": {"type": "BOOLEAN", "default": False},
+                "reminder_sent": {"type": "BOOLEAN", "default": False},
+                "tour_completed_at": {"type": "TEXT", "nullable": True},
+                "feedback_rating": {"type": "INTEGER", "nullable": True},
+                "feedback_comments": {"type": "TEXT", "nullable": True},
+                "created_at": {"type": "TIMESTAMP WITH TIME ZONE", "default": "NOW()"},
+                "last_modified": {"type": "TIMESTAMP WITH TIME ZONE", "default": "NOW()"}
+            },
+            "relationships": [
+                {"type": "belongs_to", "target": "leads", "foreign_key": "lead_id"},
+                {"type": "belongs_to", "target": "rooms", "foreign_key": "room_id"},
+                {"type": "belongs_to", "target": "operators", "foreign_key": "operator_id"}
+            ]
+        },
+
+        "tour_availability_slots": {
+            "description": "Available time slots for tours",
+            "columns": {
+                "slot_id": {"type": "TEXT", "primary_key": True},
+                "room_id": {"type": "TEXT", "foreign_key": "rooms.room_id"},
+                "operator_id": {"type": "BIGINT", "foreign_key": "operators.operator_id"},
+                "slot_date": {"type": "TEXT", "nullable": False},
+                "slot_time": {"type": "TEXT", "nullable": False},
+                "slot_duration": {"type": "INTEGER", "default": 30},
+                "is_available": {"type": "BOOLEAN", "default": True},
+                "is_booked": {"type": "BOOLEAN", "default": False},
+                "created_at": {"type": "TIMESTAMP WITH TIME ZONE", "default": "NOW()"}
+            },
+            "relationships": [
+                {"type": "belongs_to", "target": "rooms", "foreign_key": "room_id"},
+                {"type": "belongs_to", "target": "operators", "foreign_key": "operator_id"}
+            ]
+        },
+
         "buildings": {
             "description": "Property buildings and their features",
             "columns": {

@@ -10,6 +10,8 @@ from app.ai_services.update_handler import update_function_sync
 from app.ai_services.intelligent_building_room_finder import unified_room_search_function
 from app.ai_services.v3_intelligent_insights_supabase import generate_insights_function
 from app.ai_services.hallucination_free_query_processor import HallucinationFreeQueryProcessor
+from app.ai_services.tour_scheduling_function import tour_scheduling_function
+
 
 # Initialize the universal query processor
 universal_processor = HallucinationFreeQueryProcessor()
@@ -23,13 +25,25 @@ def universal_query_function(query: str, **kwargs) -> Dict[str, Any]:
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
     
-    # Default user context
-    user_context = {
-        "user_id": kwargs.get("user_id", "anonymous"),
-        "permissions": kwargs.get("permissions", ["basic"]),
-        "role": kwargs.get("role", "user")
-    }
-    
+    # # Default user context
+    # user_context = {
+    #     "user_id": kwargs.get("user_id", "anonymous"),
+    #     "permissions": kwargs.get("permissions", ["basic"]),
+    #     "role": kwargs.get("role", "user")
+    # }
+    user_context = kwargs.get("user_context")
+    print(f"🌐 Universal Query Function - Query: {query}")
+    print(f"🌐 Universal Query Function - kwargs: {kwargs}")
+    print(f"🌐 Universal Query Function - user_context: {user_context}")
+    print(f"🌐 Universal Query Function - Permissions: {user_context.get('permissions') if user_context else 'None'}")
+
+    if user_context is None:
+        print("⚠️ WARNING: user_context is None, using defaults")
+        user_context = {
+            "user_id": kwargs.get("user_id", "anonymous"),
+            "permissions": kwargs.get("permissions", ["basic"]),
+            "role": kwargs.get("role", "user")
+        }
     # Process query using the universal processor
     try:
         # Run async function in a thread pool to avoid event loop conflicts
@@ -67,6 +81,7 @@ AI_FUNCTIONS_REGISTRY = {
     # "generate_insights_function": generate_insights_function,
     "universal_query_function": universal_query_function,  # NEW: Universal query function
     "update_function": update_function_sync,
+    "tour_scheduling_function": tour_scheduling_function, 
     # Add other functions
 }
 
@@ -76,8 +91,9 @@ def intelligent_function_selection(query: str, user_context: Dict[str, Any] = No
     """
     Use LLM to determine which function to call and execute it directly
     """
-    print(f"🤖 Analyzing query: '{query}'")
-    print(f"📋 User context received: {user_context}")  # Add debug
+    print(f"🤖 Function Selection - Query: '{query}'")
+    print(f"🤖 Function Selection - User context received: {user_context}")
+    print(f"🤖 Function Selection - Permissions in context: {user_context.get('permissions') if user_context else 'None'}")
     
     # Default user context if not provided
     if user_context is None:
@@ -131,6 +147,24 @@ def intelligent_function_selection(query: str, user_context: Dict[str, Any] = No
     - DO NOT use for: creating new records, deleting records, or reading/searching data
     - This handles ALL update/modification operations on existing records
     
+    Use tour_scheduling_function for:
+    - Scheduling, booking, or managing tours
+    - Checking tour availability or time slots
+    - Tour-related queries: virtual tours, in-person tours, viewings
+    - Keywords: tour, schedule tour, book tour, viewing, appointment, visit
+    - ANY query with words: tour, tours, touring, scheduled tour, booking, viewing
+    - Questions like: "What tours...", "Show tours...", "tours happening", "tours on [date]"
+    - Time-based tour queries: "tours today", "tours this week", "tours on Sept 23"
+    - ALWAYS use for queries containing "tour" or "tours" anywhere
+    - This has HIGHEST PRIORITY for tour-related words
+    - Examples:
+    * "Schedule a virtual tour for tomorrow at 2pm"
+    * "Show available tour slots this week"
+    * "Cancel my tour"
+    * "Find tour times for room 101"
+    * "Book a viewing with Lisa"
+    - This handles ALL tour-related operations
+    
     Respond ONLY with the function call, NO TEXT
     Return JSON with:
     {{
@@ -174,6 +208,10 @@ def intelligent_function_selection(query: str, user_context: Dict[str, Any] = No
         
         parameters["query"] = query
         parameters["user_context"] = user_context
+
+        print(f"✅ Function Selection - Using function: {function_name}")
+        print(f"✅ Function Selection - Final parameters: {parameters}")
+        print(f"✅ Function Selection - Final permissions: {parameters.get('user_context', {}).get('permissions')}")
         
         # Validate and execute function
         if function_name in AI_FUNCTIONS_REGISTRY:

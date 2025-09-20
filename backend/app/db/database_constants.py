@@ -1,7 +1,36 @@
 # app/db/database_constants.py
-
+from typing import Any, Dict, List
 from typing import Any
 DATABASE_DISTINCT_VALUES = {
+        "tour_bookings": {
+            "text_columns": {
+                "status": ["Scheduled", "Confirmed", "Completed", "Cancelled", "No-show", "Rescheduled"],
+                "tour_type": ["In-person", "Virtual"],
+                "scheduled_date": [],  # Date field
+                "scheduled_time": [],  # Time field
+                "tour_completed_at": [],  # Date field
+            },
+            "boolean_string_columns": [
+                "confirmation_sent", "reminder_sent"
+            ],
+            "numeric_columns": {
+                "duration_minutes": {"min": 15, "max": 120},
+                "feedback_rating": {"min": 1, "max": 5}
+            }
+        },
+
+        "tour_availability_slots": {
+            "text_columns": {
+                "slot_date": [],  # Date field
+                "slot_time": [],  # Time field
+            },
+            "boolean_string_columns": [
+                "is_available", "is_booked"
+            ],
+            "numeric_columns": {
+                "slot_duration": {"min": 15, "max": 120}
+            }
+        },
     "buildings": {
         # Text columns with distinct values (from CSV)
         "text_columns": {
@@ -230,6 +259,19 @@ def get_column_type(table: str, column: str) -> str:
         return "text"
     else:
         return "unknown"
+    
+def get_valid_values_dict() -> Dict[str, List[str]]:
+    """Return valid values in a format suitable for validation."""
+    result = {}
+    
+    for table, data in DATABASE_DISTINCT_VALUES.items():
+        text_columns = data.get("text_columns", {})
+        for column, values in text_columns.items():
+            if values:  # Only include columns with specific valid values
+                key = f"{table}.{column}"
+                result[key] = values
+    
+    return result
 
 def get_valid_values(table: str, column: str) -> list:
     """Get valid values for a text column."""
@@ -343,6 +385,25 @@ def format_values_for_prompt() -> str:
 # Format assumes ISO 'YYYY-MM-DD' unless otherwise noted. Provide concrete examples
 # so the LLM copies the pattern and uses CASTs in SQL.
 DATE_TEXT_COLUMNS = {
+    "tour_bookings": {
+        "scheduled_date": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-09-20", "2025-09-21"],
+            "notes": "Stored as TEXT; cast to DATE for filtering."
+        },
+        "tour_completed_at": {
+            "format": "YYYY-MM-DD",
+            "examples": ["2025-09-19"],
+            "notes": "Stored as TEXT; cast to DATE for filtering."
+        }
+    },
+    "tour_availability_slots": {
+        "slot_date": {
+            "format": "YYYY-MM-DD", 
+            "examples": ["2025-09-20", "2025-09-21"],
+            "notes": "Stored as TEXT; cast to DATE for filtering."
+        }
+    },
     "leads": {
         "last_contacted": {
             "format": "YYYY-MM-DD",
