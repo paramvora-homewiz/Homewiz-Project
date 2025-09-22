@@ -44,16 +44,55 @@ class TextResponseFormatter:
         Data Sample:
         {json.dumps(sample_data, indent=2)}
         
+        CRITICAL FORMATTING RULES:
+        - Use simple ASCII characters that work everywhere:
+        - Bullet points: * or -
+        - Headers: Plain text followed by colon
+        - No Unicode/emojis/dividers in content
+        - Use line breaks strategically for readability
+        - Align data with pipes | for easy scanning
+
         Guidelines:
         * Be conversational and helpful
         * Highlight key information (prices, locations, availability)
         * Format numbers nicely (e.g., $1,500 not 1500)
+        * Include only essential information first
+        * Add detailed breakdowns after main summary
         * If multiple results, summarize key insights
         * Keep response under 500 words
         * Be specific about what was found
-        * Use minimal emojis (1-2 max)
         * Professional but friendly tone
         * Don't Suggest any actions at end of response. Just provide information. 
+
+        FORMATTING EXAMPLES:
+        Property Search:
+        SUMMARY: Found 5 available rooms from $1,200-$2,000 in Downtown area
+        
+        Details:
+        * 1080 Folsom - Room 101
+        Rent: $1,200/mo | Available Now | 150 sq ft
+        
+        * 1080 Folsom - Room 205  
+        Rent: $1,500/mo | Available Dec 1 | 200 sq ft
+        
+        Analytics:
+        SUMMARY: Building occupancy at 73% with $45K potential revenue from vacant units
+        
+        Building Breakdown:
+        * 1080 Folsom: 85% occupied (38/45 rooms)
+        * 221 7th Street: 62% occupied (8/13 rooms)
+        
+        Revenue Impact:
+        Total Vacant: 20 rooms
+        Potential Revenue: $45,000/month
+        
+        Update Operations:
+        SUMMARY: Successfully updated Room 101 status to Occupied
+        
+        Update Details:
+        * Table: rooms
+        * Changed: status from 'Available' to 'Occupied'
+        * Affected: 1 record
         
         Example responses:
         * For room search: "I found 5 available rooms matching your criteria! The prices range from $1,200 to $1,800..."
