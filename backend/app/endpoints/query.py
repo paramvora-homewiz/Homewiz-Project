@@ -74,6 +74,102 @@ async def process_lead_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     
     return result
 
+@router.post("/query/web", response_model=Dict[str, Any])
+async def process_web_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process query for web interface display with rich formatting.
+    Uses intelligent function selection like the main query endpoint.
+    """
+    query = query_request.get("query")
+    user_context = query_request.get("user_context", {})
+    
+    if not query:
+        raise HTTPException(status_code=400, detail="Query text is required.")
+
+    logger.info(f"🌐 Web Query - Query: {query}")
+    logger.info(f"🌐 Web Query - User Context: {user_context}")
+
+    try:
+        # Use intelligent function selection with format_type
+        result = intelligent_function_selection(
+            query, 
+            user_context,
+            format_type="web"  # Pass format_type to function selector
+        )
+        
+        logger.info(f"✅ Web query processed successfully")
+        
+        return result
+    except Exception as e:
+        logger.error(f"❌ Web query failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/query/email", response_model=Dict[str, Any])
+async def process_email_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process query for email delivery with email-friendly formatting.
+    Uses intelligent function selection like the main query endpoint.
+    """
+    query = query_request.get("query")
+    user_context = query_request.get("user_context", {})
+    
+    if not query:
+        raise HTTPException(status_code=400, detail="Query text is required.")
+
+    logger.info(f"📧 Email Query - Query: {query}")
+    logger.info(f"📧 Email Query - User Context: {user_context}")
+
+    try:
+        # Use intelligent function selection with format_type
+        result = intelligent_function_selection(
+            query,
+            user_context,
+            format_type="email"  # Pass format_type to function selector
+        )
+        
+        logger.info(f"✅ Email query processed successfully")
+        
+        return result
+    except Exception as e:
+        logger.error(f"❌ Email query failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/query/sms", response_model=Dict[str, Any])
+async def process_sms_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process query for SMS delivery with ultra-concise formatting.
+    Uses intelligent function selection like the main query endpoint.
+    """
+    query = query_request.get("query")
+    user_context = query_request.get("user_context", {})
+    
+    if not query:
+        raise HTTPException(status_code=400, detail="Query text is required.")
+
+    logger.info(f"📱 SMS Query - Query: {query}")
+    logger.info(f"📱 SMS Query - User Context: {user_context}")
+
+    try:
+        # Use intelligent function selection with format_type
+        result = intelligent_function_selection(
+            query,
+            user_context,
+            format_type="sms"  # Pass format_type to function selector
+        )
+        
+        logger.info(f"✅ SMS query processed successfully")
+        
+        # Add SMS-specific metadata
+        if result.get("response"):  # Check if response exists
+            result.setdefault("metadata", {})
+            result["metadata"]["character_count"] = len(result.get("response", ""))
+            result["metadata"]["sms_parts"] = (len(result.get("response", "")) + 159) // 160
+        
+        return result
+    except Exception as e:
+        logger.error(f"❌ SMS query failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/universal-query/", response_model=Dict[str, Any])
 async def process_universal_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     """

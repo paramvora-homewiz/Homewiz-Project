@@ -17,18 +17,29 @@ class HallucinationFreeQueryProcessor:
         self.result_verifier = ResultVerifier()
         
     async def process_query(
-        self,
-        natural_query: str,
-        user_context: Dict[str, Any] = None
+    self,
+    natural_query: str,
+    user_context: Dict[str, Any] = None,
+    format_type: str = "web"
     ) -> FrontendResponse:
         """
         Process any query with guaranteed accuracy and frontend compatibility.
+        
+        Args:
+            natural_query: The user's query in natural language
+            user_context: User permissions and role information
+            format_type: Output format type - "web", "email", or "sms"  # ADD THIS TO DOCSTRING
+        
+        Returns:
+            FrontendResponse with formatted message based on format_type
         """
         
         if user_context is None:
             user_context = {"permissions": ["basic"], "role": "user"}
         
         start_time = time.time()
+        
+        print(f"📍 Process Query - Format type: {format_type}") 
         
         try:
             # Layer 1: Generate schema-constrained SQL
@@ -165,7 +176,8 @@ class HallucinationFreeQueryProcessor:
                 execution_result,
                 natural_query,
                 sql_result["sql"],
-                user_context
+                user_context,
+                format_type  
             )
             
             # Add SQL generation metadata

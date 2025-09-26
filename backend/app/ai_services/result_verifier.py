@@ -29,7 +29,8 @@ class ResultVerifier:
         raw_results: Dict[str, Any],
         original_query: str,
         sql_query: str,
-        user_context: Dict[str, Any]
+        user_context: Dict[str, Any],
+        format_type: str = "web"
     ) -> FrontendResponse:
         """
         Verify results against schema and structure for frontend.
@@ -66,7 +67,7 @@ class ResultVerifier:
         
         # Generate human-readable message
         message = await self._generate_response_message(
-            structured_data, original_query, user_context
+            structured_data, original_query, user_context, format_type
         )
         
         return FrontendResponse(
@@ -398,7 +399,8 @@ class ResultVerifier:
     self,
     structured_data: List[Dict],
     original_query: str,
-    user_context: Dict[str, Any]
+    user_context: Dict[str, Any],
+    format_type: str = "web"
 ) -> str:
         """Generate contextual response message using LLM formatter."""
         
@@ -428,28 +430,60 @@ class ResultVerifier:
             formatted_message = await formatter.format_response(
                 data=structured_data,
                 original_query=original_query,
-                result_type=result_type
+                result_type=result_type,
+                format_type=format_type
             )
             return formatted_message
         except Exception as e:
             # Fallback to original simple message generation
-            return self._generate_simple_response_message(structured_data, original_query, result_type)
+            return self._generate_simple_response_message(structured_data, original_query, result_type,format_type)
 
     def _generate_simple_response_message(
         self,
         structured_data: List[Dict],
         original_query: str,
-        result_type: str
+        result_type: str, 
+        format_type: str = "web"
     ) -> str:
         """Fallback simple message generation (original logic)."""
         
         if not structured_data:
-            return f"No results found for '{original_query}'. Try adjusting your search criteria."
+            if format_type == "sms":
+                return "No results found."
+            elif format_type == "email":
+                return "Hello,\n\nNo results were found for your query.\n\nBest regards,\nHomeWiz Team"
+            else:
+                return f"No results found for '{original_query}'. Try adjusting your search criteria."
         
         count = len(structured_data)
         query_lower = original_query.lower()
+
+        # if format_type == "sms":
+        #     # Ultra-short SMS messages
+        #     if any(word in query_lower for word in ['room', 'apartment', 'property', 'available']):
+        #         return f"{count} properties found"
+        #     elif any(word in query_lower for word in ['occupancy', 'rate']):
+        #         return f"Occupancy data: {count} buildings"
+        #     elif any(word in query_lower for word in ['tenant', 'resident']):
+        #         return f"{count} tenants found"
+        #     else:
+        #         return f"{count} results"
         
+        # elif format_type == "email":
+        #     # Email format with greeting/closing
+        #     base_message = ""
+        #     if any(word in query_lower for word in ['room', 'apartment', 'property', 'available']):
+        #         base_message = f"We found {count} property{'ies' if count != 1 else ''} matching your criteria."
+        #     elif any(word in query_lower for word in ['occupancy', 'rate']):
+        #         base_message = f"Here is the occupancy data for {count} building{'s' if count != 1 else ''}."
+        #     else:
+        #         base_message = f"We found {count} result{'s' if count != 1 else ''} for your query."
+            
+        #     return f"Hello,\n\n{base_message}\n\nBest regards,\nHomeWiz Team"
+        
+        # else:
         # Original message generation logic
+        
         if any(word in query_lower for word in ['room', 'apartment', 'property', 'available']):
             return f"Found {count} property{'ies' if count != 1 else ''} matching your criteria."
         elif any(word in query_lower for word in ['occupancy', 'rate']):
