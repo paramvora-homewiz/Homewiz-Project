@@ -16,23 +16,24 @@ from app.ai_services.tour_scheduling_function import tour_scheduling_function
 # Initialize the universal query processor
 universal_processor = HallucinationFreeQueryProcessor()
 
-def universal_query_function(query: str, **kwargs) -> Dict[str, Any]:
+def universal_query_function(query: str, format_type: str = "web", **kwargs) -> Dict[str, Any]:
     """
     Universal query function using hallucination-free processor.
     Handles any natural language query with guaranteed accuracy.
     Modified to work without nest_asyncio.
+    
+    Args:
+        query: Natural language query
+        format_type: Output format type - "web", "email", or "sms"
+        **kwargs: Additional arguments including user_context
     """
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
     
-    # # Default user context
-    # user_context = {
-    #     "user_id": kwargs.get("user_id", "anonymous"),
-    #     "permissions": kwargs.get("permissions", ["basic"]),
-    #     "role": kwargs.get("role", "user")
-    # }
+    # Default user context
     user_context = kwargs.get("user_context")
     print(f"🌐 Universal Query Function - Query: {query}")
+    print(f"🌐 Universal Query Function - Format type: {format_type}")  # ADD THIS LINE
     print(f"🌐 Universal Query Function - kwargs: {kwargs}")
     print(f"🌐 Universal Query Function - user_context: {user_context}")
     print(f"🌐 Universal Query Function - Permissions: {user_context.get('permissions') if user_context else 'None'}")
@@ -44,6 +45,7 @@ def universal_query_function(query: str, **kwargs) -> Dict[str, Any]:
             "permissions": kwargs.get("permissions", ["basic"]),
             "role": kwargs.get("role", "user")
         }
+    
     # Process query using the universal processor
     try:
         # Run async function in a thread pool to avoid event loop conflicts
@@ -51,7 +53,9 @@ def universal_query_function(query: str, **kwargs) -> Dict[str, Any]:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                return loop.run_until_complete(universal_processor.process_query(query, user_context))
+                return loop.run_until_complete(
+                    universal_processor.process_query(query, user_context, format_type)  # ADD format_type HERE
+                )
             finally:
                 loop.close()
         
@@ -87,12 +91,18 @@ AI_FUNCTIONS_REGISTRY = {
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-def intelligent_function_selection(query: str, user_context: Dict[str, Any] = None) -> Dict[str, Any]:
+def intelligent_function_selection(query: str, user_context: Dict[str, Any] = None, format_type: str = "web") -> Dict[str, Any]:
     """
     Use LLM to determine which function to call and execute it directly
+    
+    Args:
+        query: The user's natural language query
+        user_context: User permissions and role information
+        format_type: Output format type - "web", "email", or "sms"
     """
     print(f"🤖 Function Selection - Query: '{query}'")
     print(f"🤖 Function Selection - User context received: {user_context}")
+    print(f"🤖 Function Selection - Format type: {format_type}")  # ADD THIS LINE
     print(f"🤖 Function Selection - Permissions in context: {user_context.get('permissions') if user_context else 'None'}")
     
     # Default user context if not provided
@@ -208,9 +218,11 @@ def intelligent_function_selection(query: str, user_context: Dict[str, Any] = No
         
         parameters["query"] = query
         parameters["user_context"] = user_context
+        parameters["format_type"] = format_type
 
         print(f"✅ Function Selection - Using function: {function_name}")
         print(f"✅ Function Selection - Final parameters: {parameters}")
+        print(f"✅ Function Selection - Format type passed: {format_type}")
         print(f"✅ Function Selection - Final permissions: {parameters.get('user_context', {}).get('permissions')}")
         
         # Validate and execute function
@@ -265,7 +277,8 @@ def intelligent_function_selection(query: str, user_context: Dict[str, Any] = No
             
             result = AI_FUNCTIONS_REGISTRY[function_name](
                 query=query,
-                user_context=user_context  
+                user_context=user_context,
+                format_type=format_type
             )
             
             return {
