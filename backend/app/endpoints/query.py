@@ -78,7 +78,7 @@ async def process_lead_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
 async def process_web_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     """
     Process query for web interface display with rich formatting.
-    Uses intelligent function selection like the main query endpoint.
+    Uses intelligent function selection like the main qsuery endpoint.
     """
     query = query_request.get("query")
     user_context = query_request.get("user_context", {})

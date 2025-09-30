@@ -11,6 +11,14 @@ class TextResponseFormatter:
     
     def __init__(self):
         self.client = genai.Client(api_key=GEMINI_API_KEY)
+
+    def _format_building_link(self, building_name: str, image_url: str = None) -> str:
+        """Format building name as hyperlink if URL exists."""
+        if image_url and image_url.strip():
+            # Escape any quotes in the URL for safety
+            safe_url = image_url.replace('"', '&quot;')
+            return f'<a href="{safe_url}">{building_name}</a>'
+        return building_name
     
     async def format_response(
         self,
@@ -48,14 +56,21 @@ class TextResponseFormatter:
 
             EMAIL FORMATTING REQUIREMENTS:
 
-            📧 PROFESSIONAL STRUCTURE:
+            PROFESSIONAL STRUCTURE:
             - Start with personalized greeting: "Dear [User/Resident/Team],"
             - Use HTML-friendly formatting that works in all email clients
             - Include a compelling subject line suggestion at the top
             - Professional signature with contact information
             - Keep under 500 words for optimal readability
 
-            🎨 VISUAL ELEMENTS:
+            IMPORTANT DATA STRUCTURE NOTE:
+            - Each result may contain building.image_url or building_image_url
+            - Use these URLs to create clickable building name links
+            - Room results include: room_number, building_name, and potentially building_image_url
+            - Analytics results may include: building_name and building_image_url
+            - Always check for the presence of image URL before creating links
+
+            VISUAL ELEMENTS:
             - Use headers with === underlines for sections
             - Bullet points with • for lists
             - Format currency professionally: $1,500/month
@@ -63,7 +78,17 @@ class TextResponseFormatter:
             - Create visual separation with line breaks
             - Use tables with | pipes | for data comparison
 
-            📋 CONTENT HIERARCHY:
+            HYPERLINK FORMATTING:
+            - When displaying building names or "Room X - Building Name", create HTML hyperlinks if building_image_url exists
+            - Format: <a href="[building_image_url]">[building_name]</a>
+            - If no image URL exists, display plain text
+            - Examples:
+              * With URL: "<a href='https://example.com/building.jpg'> Room 101 - 1080 Folsom</a>"
+              * Without URL: "Room 205 - Sunset Residences"
+            - Apply to all building name mentions in the email
+            - Ensure proper HTML escaping for security
+
+            CONTENT HIERARCHY:
             Subject: [Suggested subject line based on query]
 
             Dear User,
@@ -133,7 +158,7 @@ class TextResponseFormatter:
             🎯 FORMAT TEMPLATES:
 
             Property Search:
-            "[#] rms found. [Rm#] $[price]/[area], [Rm#] $[price]/[area]. [Key amenity]"
+            "[#] rms found. [Rm#] - $[building_images_url] $[price]/[area], [Rm#] $[price]/[area]. [Key amenity]"
 
             Analytics:
             "[Metric]:[value]. [Bldg1]:[%], [Bldg2]:[%]. [Key insight]"
@@ -164,15 +189,15 @@ class TextResponseFormatter:
             Data Sample:
             {json.dumps(sample_data, indent=2)}
             
-            🎨 REACT UI FORMATTING GUIDELINES:
+            REACT UI FORMATTING GUIDELINES:
             
-            ⚛️ IMPORTANT: The React frontend will parse and style this response. Focus on:
+            IMPORTANT: The React frontend will parse and style this response. Focus on:
             - Clean, semantic structure that React components can easily render
             - Logical content hierarchy that maps to component structure
             - Data-focused formatting (the UI will handle the visual styling)
             - Markdown syntax that React-Markdown can parse
             
-            📝 MARKDOWN FOR REACT:
+            MARKDOWN FOR REACT:
             - Use standard markdown headers: # ## ### (React will style these)
             - Bold with **text** and italics with *text*
             - Lists with - or * (React will convert to proper list components)
@@ -180,8 +205,11 @@ class TextResponseFormatter:
             - Links: [text](url) format
             - NO HTML tags - only pure markdown
             - NO custom Unicode boxes/borders (React components handle containers)
+            - Building links: When building_image_url exists, format as [Building Name](image_url)
+            - This allows React to render as clickable links or image previews
+            - Example: [1080 Folsom](https://example.com/1080-folsom.jpg)
             
-            🏗️ STRUCTURE FOR REACT COMPONENTS:
+            STRUCTURE FOR REACT COMPONENTS:
             
             # [Clear Page Title]
             

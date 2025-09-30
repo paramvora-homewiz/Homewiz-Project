@@ -131,6 +131,7 @@ DATABASE_SCHEMA = {
                 "security_features": {"type": "TEXT", "nullable": True, "description": "Security features description"},
                 "disability_access": {"type": "BOOLEAN", "nullable": True, "description": "Whether the building has disability access"},
                 "disability_features": {"type": "TEXT", "nullable": True, "description": "Disability access features"},
+                "building_images_url": {"type": "TEXT", "nullable": True, "description": "JSON array of building image URLs"},
                 "building_images": {"type": "TEXT", "nullable": True, "description": "JSON array of building image URLs"},
                 "virtual_tour_url": {"type": "TEXT", "nullable": True, "description": "URL for virtual tour"},
                 "created_at": {"type": "TIMESTAMP WITH TIME ZONE", "nullable": True, "description": "Record creation timestamp"},

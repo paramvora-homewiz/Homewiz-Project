@@ -235,7 +235,8 @@ class ResultVerifier:
             "building": {
                 "id": row.get("building_id"),
                 "name": row.get("building_name"),
-                "address": row.get("full_address") or row.get("street", "")
+                "address": row.get("full_address") or row.get("street", ""),
+                "image_url": row.get("building_images_url")
             },
             "details": {
                 "room_number": str(row.get("room_number", "")),
@@ -261,11 +262,12 @@ class ResultVerifier:
             "room_id": row.get("room_id"),
             "room_number": row.get("room_number"),
             "building_name": row.get("building_name"),
+            "building_image_url": row.get("building_images_url"),  # ADD THIS LINE
             "is_available": row.get("is_available") or (row.get("status") == "Scheduled"),
             "duration": row.get("slot_duration") or row.get("duration_minutes", 30),
             "status": row.get("status"),
             "tour_type": row.get("tour_type")
-    }
+        }
        
     def _structure_analytics_result(self, row: Dict) -> Dict[str, Any]:
         """Structure analytics results."""
@@ -277,6 +279,7 @@ class ResultVerifier:
                 "metric_value": row.get("metric_value") or row.get("total_revenue") or row.get("occupancy_rate") or row.get("total_rooms", 0),
                 "time_period": row.get("time_period"),
                 "building_name": row.get("building_name"),
+                "building_image_url": row.get("building_images_url"),
                 "comparison": {
                     "previous_period": row.get("previous_value"),
                     "change_percentage": row.get("change_percentage")
@@ -325,7 +328,8 @@ class ResultVerifier:
             "room": {
                 "id": row.get("room_id"),
                 "number": str(row.get("room_number", "")),
-                "building_name": row.get("building_name")
+                "building_name": row.get("building_name"),
+                "building_image_url": row.get("building_images_url") 
             },
             "lease": {
                 "start_date": row.get("lease_start_date"),
@@ -375,7 +379,8 @@ class ResultVerifier:
             "room": {
                 "id": row.get("room_id"),
                 "number": str(row.get("room_number", "")),
-                "building_name": row.get("building_name")
+                "building_name": row.get("building_name"),
+                "building_image_url": row.get("building_images_url")
             },
             "tenant": {
                 "id": row.get("tenant_id"),

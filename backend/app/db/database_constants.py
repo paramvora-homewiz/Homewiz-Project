@@ -45,6 +45,7 @@ DATABASE_DISTINCT_VALUES = {
                 "524 Columbus Residences",
                 "UpMarket Residences"
             ],
+            "building_images_url": [],
             "building_rules": ["No smoking, quiet hours 10 PM - 8 AM, guests must be registered"],
             "city": ["San Francisco"],
             "cleaning_common_spaces": ["Daily cleaning of common areas"],
