@@ -45,7 +45,8 @@ class TextResponseFormatter:
         # Build format-specific prompts
         if format_type == "email":
             prompt = f"""
-            Generate a professional, visually appealing email response for this property management query:
+            Generate a professional, HTML-formatted email body for this property management query.
+            This will be sent via Gmail/Outlook, so use clean HTML that renders well in all email clients.
 
             Original Query: "{original_query}"
             Query Type: {result_type}
@@ -54,73 +55,131 @@ class TextResponseFormatter:
             Data Sample:
             {json.dumps(sample_data, indent=2)}
 
-            EMAIL FORMATTING REQUIREMENTS:
+            ⚠️ CRITICAL OUTPUT FORMAT:
+            - Output ONLY raw HTML code
+            - Do NOT wrap in markdown code blocks (no ```html or ```)
+            - Do NOT include any explanatory text before or after the HTML
+            - Start directly with <p> or <h2> tag
+            - End directly with closing </p> tag
 
-            PROFESSIONAL STRUCTURE:
-            - Start with personalized greeting: "Dear [User/Resident/Team],"
-            - Use HTML-friendly formatting that works in all email clients
-            - Include a compelling subject line suggestion at the top
-            - Professional signature with contact information
-            - Keep under 500 words for optimal readability
+            CRITICAL EMAIL FORMATTING RULES:
 
-            IMPORTANT DATA STRUCTURE NOTE:
+            HTML STRUCTURE:
+            - Output ONLY the email body content (NO subject line, NO "Dear User," greeting)
+            - Use proper HTML tags: <p>, <h2>, <h3>, <strong>, <ul>, <li>, <table>, <a>
+            - Ensure compatibility with Gmail, Outlook, and other email clients
+            - Use inline CSS for styling (email clients strip <style> tags)
+            - Keep HTML clean and semantic
+
+            IMPORTANT DATA STRUCTURE:
             - Each result may contain building.image_url or building_image_url
-            - Use these URLs to create clickable building name links
-            - Room results include: room_number, building_name, and potentially building_image_url
-            - Analytics results may include: building_name and building_image_url
-            - Always check for the presence of image URL before creating links
-
-            VISUAL ELEMENTS:
-            - Use headers with === underlines for sections
-            - Bullet points with • for lists
-            - Format currency professionally: $1,500/month
-            - Bold **important values** using asterisks
-            - Create visual separation with line breaks
-            - Use tables with | pipes | for data comparison
-
-            HYPERLINK FORMATTING:
-            - When displaying building names or "Room X - Building Name", create HTML hyperlinks if building_image_url exists
-            - Format: <a href="[building_image_url]">[building_name]</a>
+            - Create clickable links: <a href="[building_image_url]" style="color: #0066cc; text-decoration: none;">[building_name]</a>
             - If no image URL exists, display plain text
-            - Examples:
-              * With URL: "<a href='https://example.com/building.jpg'> Room 101 - 1080 Folsom</a>"
-              * Without URL: "Room 205 - Sunset Residences"
-            - Apply to all building name mentions in the email
-            - Ensure proper HTML escaping for security
+            - Apply to building names in room titles, tables, and throughout content
 
-            CONTENT HIERARCHY:
-            Subject: [Suggested subject line based on query]
+            VISUAL STYLING:
+            - Headers: <h2 style="color: #333; font-size: 18px; margin: 20px 0 10px 0; border-bottom: 2px solid #0066cc; padding-bottom: 5px;">Section Title</h2>
+            - Subheaders: <h3 style="color: #555; font-size: 16px; margin: 15px 0 8px 0;">Subsection</h3>
+            - Paragraphs: <p style="color: #333; font-size: 14px; line-height: 1.6; margin: 10px 0;">Content</p>
+            - Lists: <ul style="margin: 10px 0; padding-left: 20px;"><li style="margin: 5px 0;">Item</li></ul>
+            - Bold values: <strong style="color: #000;">$1,500/month</strong>
+            - Links: <a href="url" style="color: #0066cc; text-decoration: none;">Text</a>
+            - Tables: Use <table style="border-collapse: collapse; width: 100%; margin: 15px 0;"> with borders
 
-            Dear User,
+            TABLE FORMATTING:
+            <table style="border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 14px;">
+              <thead>
+                <tr style="background-color: #f0f0f0;">
+                  <th style="border: 1px solid #ddd; padding: 10px; text-align: left;">Column</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 10px;">Data</td>
+                </tr>
+              </tbody>
+            </table>
 
-            [Warm opening line acknowledging their query]
+            CONTENT STRUCTURE (NO greeting, NO subject):
 
-            === Executive Summary ===
-            [1-2 sentence overview of findings]
+            <p>Thank you for your inquiry about [query topic]. Here's what I found:</p>
 
-            === Key Results ===
-            [Main findings with essential details]
-            • Point 1 with **highlighted value**
-            • Point 2 with relevant information
-            • Point 3 with actionable insight
+            <h2>Summary</h2>
+            <p>[1-2 sentence overview with key numbers]</p>
 
-            === Detailed Breakdown ===
-            [Comprehensive results in organized format]
+            <h2>Key Results</h2>
+            <ul>
+              <li><strong>Result 1</strong>: Details</li>
+              <li><strong>Result 2</strong>: Details</li>
+            </ul>
 
-            === Next Steps ===
-            [Any relevant follow-up information]
+            <h2>Detailed Breakdown</h2>
+            <p>Here are the available options:</p>
 
-            Best regards,
+            <table>
+              [Table with results, including clickable building name links]
+            </table>
 
-            HomeWiz Property Management Team
-            📞 (555) 123-4567
-            ✉️ info@homewiz.com
-            🌐 www.homewiz.com
+            <h3>Building Amenities</h3>
+            <ul>
+              <li>Amenity 1</li>
+              <li>Amenity 2</li>
+            </ul>
 
-            EXAMPLES:
-            - Subject: "✅ 5 Available Rooms Found Matching Your Criteria"
-            - Subject: "📊 October Occupancy Report - 73% Overall"
-            - Use warm language: "I'm pleased to share..." or "Great news! We found..."
+            <p>For more information or to schedule a viewing, please contact us.</p>
+
+            <p style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #ddd; color: #666; font-size: 13px;">
+            Best regards,<br>
+            HomeWiz Property Management Team<br>
+            Phone: (555) 123-4567<br>
+            Email: info@homewiz.com<br>
+            Website: www.homewiz.com
+            </p>
+
+            EXAMPLES OF GOOD EMAIL HTML:
+
+            Example 1 - Property Search:
+            <p>Thank you for your inquiry about cat-friendly units in San Francisco under $1500. Here's what I found:</p>
+
+            <h2 style="color: #333; font-size: 18px; margin: 20px 0 10px 0; border-bottom: 2px solid #0066cc; padding-bottom: 5px;">Summary</h2>
+            <p style="color: #333; font-size: 14px; line-height: 1.6;">We found <strong>2 available rooms</strong> at 524 Columbus Residences that allow cats and are within your budget at <strong>$995/month</strong>.</p>
+
+            <h2 style="color: #333; font-size: 18px; margin: 20px 0 10px 0; border-bottom: 2px solid #0066cc; padding-bottom: 5px;">Available Rooms</h2>
+            <table style="border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 14px;">
+              <thead>
+                <tr style="background-color: #f0f0f0;">
+                  <th style="border: 1px solid #ddd; padding: 10px; text-align: left;">Room</th>
+                  <th style="border: 1px solid #ddd; padding: 10px; text-align: left;">Rent</th>
+                  <th style="border: 1px solid #ddd; padding: 10px; text-align: left;">Status</th>
+                  <th style="border: 1px solid #ddd; padding: 10px; text-align: left;">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="border: 1px solid #ddd; padding: 10px;"><a href="https://example.com/building.jpg" style="color: #0066cc; text-decoration: none;">Room 1 - 524 Columbus</a></td>
+                  <td style="border: 1px solid #ddd; padding: 10px;"><strong>$995/month</strong></td>
+                  <td style="border: 1px solid #ddd; padding: 10px;">Available</td>
+                  <td style="border: 1px solid #ddd; padding: 10px;">122 sq ft</td>
+                </tr>
+              </tbody>
+            </table>
+
+            CRITICAL RULES:
+            ✅ DO:
+            - Use clean, inline-styled HTML
+            - Make building names clickable when URL exists
+            - Use tables for data comparison
+            - Format currency professionally: $1,500/month
+            - Use semantic HTML structure
+            - Test compatibility with Gmail/Outlook rendering
+
+            ❌ DON'T:
+            - Include subject line in body
+            - Add "Dear User," or formal greeting
+            - Use markdown syntax (===, **, •)
+            - Add emojis (📞, ✉️, 🌐)
+            - Use <style> tags (use inline CSS only)
+            - Include "Subject:" prefix
             """
 
         elif format_type == "sms":
@@ -401,8 +460,20 @@ class TextResponseFormatter:
                     # max_output_tokens=300
                 )
             )
-            
-            return response.text.strip()
+
+            # Clean up the response
+            result = response.text.strip()
+
+            # Remove markdown code block wrappers if present
+            if result.startswith('```html'):
+                result = result[7:]  # Remove ```html
+            elif result.startswith('```'):
+                result = result[3:]  # Remove ```
+
+            if result.endswith('```'):
+                result = result[:-3]  # Remove trailing ```
+
+            return result.strip()
             
         except Exception as e:
             # Fallback to simple message if LLM fails

@@ -45,10 +45,12 @@ venv/
 __pycache__/
 .venv/
 .env
+backend/.env
 
 target/
 .idea/
 .vscode/
+.claude/
 
 # Build Artifacts
 dist/
