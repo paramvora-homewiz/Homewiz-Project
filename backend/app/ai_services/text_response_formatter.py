@@ -452,6 +452,7 @@ class TextResponseFormatter:
         # """
         
         try:
+            print(f"🎨 TextResponseFormatter - Calling Gemini for format_type: {format_type}")
             response = self.client.models.generate_content(
                 model="gemini-2.0-flash-exp",
                 contents=prompt,
@@ -463,19 +464,26 @@ class TextResponseFormatter:
 
             # Clean up the response
             result = response.text.strip()
+            print(f"✅ TextResponseFormatter - Got response ({len(result)} chars)")
+            print(f"📝 TextResponseFormatter - First 100 chars: {result[:100]}")
 
             # Remove markdown code block wrappers if present
             if result.startswith('```html'):
                 result = result[7:]  # Remove ```html
+                print(f"🧹 Removed ```html wrapper")
             elif result.startswith('```'):
                 result = result[3:]  # Remove ```
+                print(f"🧹 Removed ``` wrapper")
 
             if result.endswith('```'):
                 result = result[:-3]  # Remove trailing ```
+                print(f"🧹 Removed trailing ```")
 
             return result.strip()
-            
+
         except Exception as e:
+            print(f"❌ TextResponseFormatter ERROR: {str(e)}")
+            print(f"❌ Error type: {type(e).__name__}")
             # Fallback to simple message if LLM fails
             return self._generate_fallback_message(data, original_query, result_type,format_type)
     
