@@ -29,7 +29,19 @@ def universal_query_function(query: str, format_type: str = "web", **kwargs) -> 
     """
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
-    
+
+    if not query or len(query.strip()) < 2:
+        messages = {
+            "web": "Please enter what you're looking for. Try 'Show available rooms' or 'List all buildings'",
+            "email": "Hello,\n\nYour search query was empty. Please provide what you're looking for, such as:\n- Available rooms\n- Building information\n- Tenant details\n\nBest regards,\nHomeWiz Team", 
+            "sms": "Empty search. Reply with: rooms, buildings, or your query"
+        }
+        return {
+            "success": False,
+            "response": messages.get(format_type, messages["web"]),
+            "data": [],
+            "metadata": {"error": "invalid_query", "format_type": format_type}
+        }
     # Default user context
     user_context = kwargs.get("user_context")
     print(f"🌐 Universal Query Function - Query: {query}")

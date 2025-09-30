@@ -208,12 +208,40 @@ class HallucinationFreeSQLGenerator:
     WHERE CLAUSE RULES (MANDATORY):
     - Every WHERE condition on categorical columns MUST use values from VALID COLUMN VALUES if  not listed and you use it = -100 points
     - Pattern: WHERE column = 'value' OR LIKE '%value%'→ 'value' MUST exist in the valid values list above if not listed still filtered in SQL query = -100 points
+    - For building names: ALWAYS use ILIKE '%value%' pattern
+    - This is THE ONLY EXCEPTION to the "use exact values" rule for categorical columns
+    - Building names are treated as partial match columns, not exact match columns
     - For status columns: ONLY use the exact status values listed
     - For boolean columns: ONLY use true/false (lowercase)
     - For date columns: Follow the date format rules in VALID COLUMN VALUES
     - PENALTY: Using any non-listed value = -100 points = IMMEDIATE REJECTION
     - For columns with valid values listed: ONLY use = or IN(), NEVER use LIKE
     - nearby_conveniences_walk, security_features = categorical, NOT free text
+
+    QUERY EXPANSION RULES:
+    When user queries are vague or single-word, expand them intelligently:
+
+    1. **Single word queries:**
+    - "buildings" → "SELECT b.*, COUNT(r.room_id) as total_rooms FROM buildings b LEFT JOIN rooms r ON b.building_id = r.building_id GROUP BY b.building_id"
+    - "rooms" → "SELECT r.*, b.building_name, b.area FROM rooms r JOIN buildings b ON r.building_id = b.building_id WHERE r.status = 'Available' LIMIT 20"
+    - "tenants" → "SELECT t.*, r.room_number, b.building_name FROM tenants t JOIN rooms r ON t.room_id = r.room_id JOIN buildings b ON r.building_id = b.building_id WHERE t.status = 'Active'"
+
+    2. **Vague location queries:**
+    - "show all buildings" → Include room counts and availability stats
+    - "list properties" → Show buildings with aggregated room information
+    - "what's available" → Show available rooms with full details
+
+    3. **Incomplete queries:**
+    - If user just mentions entity without action → default to SELECT with useful joins
+    - Always include related table information for context
+    - Add reasonable LIMIT clauses to prevent overwhelming results
+
+    4. **Smart defaults:**
+    - For room searches without filters → show only 'Available' status
+    - For building queries → always include room statistics
+    - For tenant queries → show only 'Active' status unless specified
+
+    REMEMBER: It's better to show useful results than no results!
 
     GROUP BY RULES (MANDATORY):
     - Can ONLY GROUP BY columns that have valid values listed above
@@ -248,17 +276,17 @@ class HallucinationFreeSQLGenerator:
     8. Return realistic result estimates
     9. Use proper PostgreSQL syntax
     10. Include LIMIT clause for large result sets
-    11. For property searches: ALWAYS include r.room_id, r.room_number, r.private_room_rent, r.status, b.building_name, b.area
-    12. For analytics: ALWAYS include building_name and calculated metrics
+    11. For property searches: ALWAYS include r.room_id, r.room_number, r.private_room_rent, r.status, b.building_name, b.area, b.building_images_url
+    12. For analytics: ALWAYS include building_name, building_images_url and calculated metrics
     13. SMART COLUMN SELECTION based on query intent:
     - If querying tour_availability_slots: ALWAYS include room_id, slot_date, slot_time, is_available
     - If joining with rooms: ALWAYS add r.room_number, r.private_room_rent, r.status  
-    - If joining with buildings: ALWAYS add b.building_name, b.area
+    - If joining with buildings: ALWAYS add b.building_name, b.area, building_images_url 
     - If joining with leads: ALWAYS add l.lead_id, l.email, l.status
     - If joining with operators: ALWAYS add o.name, o.operator_type
     - NEVER select only 1-2 columns unless specifically counting/aggregating
     - For ANY user-facing query: include enough columns to make results meaningful
-    14. For building name matching: Use LIKE with % wildcards (e.g., '1080 Folsom%' matches '1080 Folsom Residences')
+    14. For building name matching: Use LIKE with % wildcards (e.g., '1080 Folom%' matches '1080 Folsom Residences')
     15. NEVER use semicolons in the middle of SQL statements
     16. When using LEFT JOINs, expect NULL values for unmatched records (e.g., tenant_id will be NULL for non-converted leads)
     17. Use COALESCE or CASE statements to provide default values where appropriate
@@ -278,16 +306,25 @@ class HallucinationFreeSQLGenerator:
     - "Jan 15" when today is Sept 17, 2025 → use 2026-01-15
     - "yesterday", "today", "tomorrow" → relative to CURRENT_DATE
     - Always prefer FUTURE dates over PAST dates unless explicitly historical 
+    23. For building name matching: ALWAYS use ILIKE with % wildcards for maximum flexibility
+    - User input "1080 Folsom" → WHERE building_name ILIKE '%1080 Folsom%' 
+    - User input "Columbus" → WHERE building_name ILIKE '%Columbus%'
+    - This catches variations like:
+      * "1080 Folsom" matches "1080 Folsom Residences"
+      * "Mars" matches "Buildings on Mars (Hypothetical)"
+      * Partial names and misspellings
+    - NEVER use exact match (=) for building names unless specifically requested
+    - ALWAYS prefer ILIKE over LIKE for case-insensitive matching
 
     CRITICAL COLUMN SELECTION RULES:
     Based on the query type, you MUST include these columns in your SELECT statement:
 
     FOR PROPERTY/ROOM QUERIES (when searching for rooms, apartments, properties, or showing available rooms):
-    - REQUIRED: r.room_id, r.room_number, r.private_room_rent, r.status, r.building_id, b.building_name, b.building_id
+    - REQUIRED: r.room_id, r.room_number, r.private_room_rent, r.status, r.building_id, b.building_name, b.building_id, b.building_images_url
     - STRONGLY RECOMMENDED: r.sq_footage, r.view, r.bathroom_type, r.bed_type, r.floor_number, b.street, b.full_address, b.wifi_included, b.laundry_onsite, b.fitness_area, b.pet_friendly
 
     FOR BUILDING REVENUE/ANALYTICS QUERIES:
-    - If grouping by building: SELECT b.building_id, b.building_name, b.area, [your calculated metrics like SUM, COUNT, etc.]
+    - If grouping by building: SELECT b.building_id, b.building_name, b.area, b.building_images_url, [your calculated metrics like SUM, COUNT, etc.]
     - If showing individual rooms with revenue: Include ALL room columns as listed above
     - NEVER just select building_name and a metric - always include building_id and area at minimum
 
@@ -318,7 +355,7 @@ class HallucinationFreeSQLGenerator:
     SELECT r.room_id, r.room_number, r.private_room_rent, r.status, r.sq_footage, r.view, 
         r.bathroom_type, r.bed_type, r.floor_number,
         b.building_id, b.building_name, b.area, b.street, b.full_address,
-        b.wifi_included, b.laundry_onsite, b.fitness_area, b.pet_friendly
+        b.wifi_included, b.laundry_onsite, b.fitness_area, b.pet_friendly, b.building_images_url
     FROM rooms r 
     JOIN buildings b ON r.building_id = b.building_id 
     WHERE r.status = 'Available' 
@@ -328,7 +365,7 @@ class HallucinationFreeSQLGenerator:
     LIMIT 20;
 
     2. Building Revenue Query (Grouped):
-    SELECT b.building_id, b.building_name, b.area, b.street, b.full_address,
+    SELECT b.building_id, b.building_name, b.area, b.street, b.full_address, b.building_images_url
         COUNT(r.room_id) as total_rooms,
         SUM(CASE WHEN r.status = 'Available' THEN 1 ELSE 0 END) as available_rooms,
         SUM(CASE WHEN r.status = 'Available' THEN r.private_room_rent ELSE 0 END) AS projected_revenue
@@ -340,7 +377,7 @@ class HallucinationFreeSQLGenerator:
 
     3. Multiple Results Query (Highest and Lowest Occupancy):
     SELECT * FROM (
-        SELECT b.building_id, b.building_name, b.area,
+        SELECT b.building_id, b.building_name, b.area, b.building_images_url
             COUNT(r.room_id) as total_rooms,
             SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) as occupied_rooms,
             ROUND(CAST(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) AS NUMERIC) / COUNT(r.room_id) * 100, 2) as occupancy_rate,
@@ -353,7 +390,7 @@ class HallucinationFreeSQLGenerator:
     ) 
     UNION ALL
     SELECT * FROM (
-        SELECT b.building_id, b.building_name, b.area,
+        SELECT b.building_id, b.building_name, b.area, b.building_images_url
             COUNT(r.room_id) as total_rooms,
             SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) as occupied_rooms,
             ROUND(CAST(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) AS NUMERIC) / COUNT(r.room_id) * 100, 2) as occupancy_rate,
