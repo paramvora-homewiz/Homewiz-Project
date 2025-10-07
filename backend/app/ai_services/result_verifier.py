@@ -146,6 +146,19 @@ class ResultVerifier:
             'building_count', 'room_count', 'tenant_count', 'lead_count',
             'operator_count', 'maintenance_count'
         }
+        additional_aggregates = {
+        'available_rooms', 'occupied_rooms', 'total_rooms', 'room_count',
+        'total_revenue', 'average_rent', 'avg_rent', 'sum_rent',
+        'tenant_count', 'lead_count', 'available_count', 'occupied_count',
+        'maintenance_count', 'building_count', 'operator_count',
+        'vacant_rooms', 'reserved_rooms', 'maintenance_rooms',
+        'active_tenants', 'inactive_tenants', 'pending_tenants',
+        'new_leads', 'interested_leads', 'converted_leads',
+        'scheduled_tours', 'completed_tours', 'total_tours',
+        'monthly_revenue', 'projected_revenue', 'potential_revenue',
+        'available_tour_slots', 'booked_slots', 'tour_count'
+        }
+        acceptable_aliases.update(additional_aggregates)
         
         for row_idx, row in enumerate(data):
             for column, value in row.items():
@@ -271,15 +284,16 @@ class ResultVerifier:
        
     def _structure_analytics_result(self, row: Dict) -> Dict[str, Any]:
         """Structure analytics results."""
-        # Handle different types of analytics data
+        
+        # Handle building-based analytics - PRESERVE building data
         if "building_name" in row:
-            # Building-based analytics
             return {
-                "metric_name": row.get("metric_name", "Building Metric"),
-                "metric_value": row.get("metric_value") or row.get("total_revenue") or row.get("occupancy_rate") or row.get("total_rooms", 0),
+                "metric_name": self._determine_metric_name(row),
+                "metric_value": self._extract_metric_value(row),
                 "time_period": row.get("time_period"),
-                "building_name": row.get("building_name"),
-                "building_image_url": row.get("building_images_url"),
+                "building_name": row.get("building_name"),  # FIX: Keep building name
+                "building_id": row.get("building_id"),      # ADD: Keep building ID
+                "building_images_url": row.get("building_images_url"),  # ADD: Keep image URL
                 "comparison": {
                     "previous_period": row.get("previous_value"),
                     "change_percentage": row.get("change_percentage")
@@ -293,29 +307,96 @@ class ResultVerifier:
                     "total_revenue": row.get("total_revenue")
                 }
             }
-        if 'scheduled_tours' in row and 'completed_tours' in row:
+        
+        # Handle tour analytics - CHECK for tour-related columns
+        if any(col in row for col in ['scheduled_tours', 'completed_tours', 'num_tours', 'tour_count']):
             return {
+                "metric_name": "Tour Analytics",
+                "metric_value": row.get('num_tours', 0) or row.get('tour_count', 0) or row.get('scheduled_tours', 0),
                 "scheduled_tours": row.get("scheduled_tours", 0),
                 "completed_tours": row.get("completed_tours", 0),
-                "type": "tour_summary"
-            }
-        else:
-            # Generic analytics
-            return {
-                "metric_name": row.get("metric_name", "System Metric"),
-                "metric_value": row.get("metric_value", 0),
+                "type": "tour_summary",
                 "time_period": row.get("time_period"),
-                "building_name": None,
-                "comparison": {
-                    "previous_period": row.get("previous_value"),
-                    "change_percentage": row.get("change_percentage")
-                },
-                "details": {
-                    "total_count": row.get("total_count"),
-                    "percentage": row.get("percentage"),
-                    "average": row.get("average_value")
-                }
+                "building_name": row.get("building_name")  # ADD: Preserve if exists
             }
+        
+        # Handle generic analytics
+        metric_name = None
+        metric_value = 0
+        
+        # Look for aggregate columns
+        aggregate_columns = [
+            'available_rooms', 'occupied_rooms', 'total_rooms', 'room_count',
+            'total_revenue', 'average_rent', 'total_count', 'avg_rent',
+            'tenant_count', 'lead_count', 'maintenance_count',
+            'available_count', 'occupied_count', 'vacant_rooms',
+            'scheduled_tours', 'completed_tours', 'total_tours',
+            'available_tour_slots', 'booked_slots', 'tour_count'
+        ]
+        
+        for col in aggregate_columns:
+            if col in row:
+                metric_name = col.replace('_', ' ').title()
+                metric_value = row[col]
+                break
+        
+        # Fallback to any non-metadata column
+        if metric_name is None:
+            skip_columns = {'building_name', 'building_id', 'area', 'time_period', 
+                        'street', 'full_address', 'category', 'metric_name', 'metric_value'}
+            for key, value in row.items():
+                if key not in skip_columns and isinstance(value, (int, float)):
+                    metric_name = key.replace('_', ' ').title()
+                    metric_value = value
+                    break
+        
+        # Final fallback
+        if metric_name is None:
+            metric_name = "Result"
+            metric_value = list(row.values())[0] if row else 0
+        
+        # Generic return - PRESERVE building data if present
+        return {
+            "metric_name": metric_name,
+            "metric_value": metric_value or 0,
+            "time_period": row.get("time_period"),
+            "building_name": row.get("building_name"),  # FIX: Don't set to None
+            "building_id": row.get("building_id"),      # ADD: Preserve if exists
+            "comparison": {
+                "previous_period": row.get("previous_value"),
+                "change_percentage": row.get("change_percentage")
+            },
+            "details": {
+                "total_count": row.get("total_count"),
+                "percentage": row.get("percentage"),
+                "average": row.get("average_value")
+            }
+        }
+
+    def _determine_metric_name(self, row: Dict) -> str:
+        """Determine the metric name from row data."""
+        if "available_rooms" in row and "occupied_rooms" in row:
+            return "Room Availability"
+        elif "occupancy_rate" in row:
+            return "Occupancy Rate"
+        elif "total_revenue" in row:
+            return "Revenue Analysis"
+        elif "avg_rent" in row or "average_rent" in row:
+            return "Average Rent"
+        return "Building Metrics"
+
+    def _extract_metric_value(self, row: Dict) -> Any:
+        """Extract the primary metric value from row."""
+        priority_columns = [
+            'metric_value', 'occupancy_rate', 'total_revenue', 
+            'available_rooms', 'total_rooms', 'avg_rent', 'average_rent'
+        ]
+        
+        for col in priority_columns:
+            if col in row and row[col] is not None:
+                return row[col]
+        
+        return 0
     
     def _structure_tenant_result(self, row: Dict) -> Dict[str, Any]:
         """Structure tenant management results."""

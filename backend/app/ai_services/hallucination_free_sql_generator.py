@@ -161,267 +161,153 @@ class HallucinationFreeSQLGenerator:
             context: Dict
         ) -> str:
             """Build prompt that makes hallucination impossible."""
-            
+               
             # Get common values for validation
             common_values = self._get_common_values()
             
             return f"""
-    You are a SQL generator for a property management database. You MUST follow these EXACT constraints:
+        You are a SQL generator for a property management database. Generate PostgreSQL queries following these rules:
 
-    NATURAL LANGUAGE QUERY: "{query}"
+        NATURAL LANGUAGE QUERY: "{query}"
+        USER PERMISSIONS: Can access tables: {allowed_tables}
+        USER ROLE: {context.get('role', 'user')}
 
-    USER PERMISSIONS: Can access tables: {allowed_tables}
-    USER ROLE: {context.get('role', 'user')}
+        EXACT DATABASE SCHEMA (USE THESE EXACT NAMES):
+        {schema}
 
-    EXACT DATABASE SCHEMA (YOU MUST USE THESE EXACT NAMES):
-    {schema}
-    SEMANTIC RULES FOR CORRECT TABLE SELECTION:
-    - Leads table: ONLY for prospects/potential tenants who haven't moved in yet
-    - Tenants table: For anyone who has/had a lease (moved in, currently living, moved out)
-    - "moved in" → search tenants.lease_start_date
-    - "moved out" → search tenants with status='Inactive' or lease_end_date passed
-    - "late payments" → tenants table, not leads
-    - Never search for historical tenant data in leads table
+        VALID COLUMN VALUES (USE ONLY THESE):
+        {common_values}
 
-    VALID COLUMN VALUES (USE ONLY THESE):
-    {common_values}
+        CRITICAL RULES:
 
-    PENALTY ENFORCEMENT SYSTEM:
-    - Using ANY value in WHERE/GROUP BY clauses that is NOT listed in the VALID COLUMN VALUES above = AUTOMATIC FAILURE
-    - Each violation = -100 points (your query will be immediately rejected)
-    - Only queries with 0 violations (perfect score) will be executed
-    - The system tracks EVERY value used in WHERE and GROUP BY clauses
-    - Hallucinated values = SEVERE PENALTY + QUERY REGENERATION
-    - NEVER invent values - if unsure, check VALID COLUMN VALUES section
-    - For categorical columns (status, payment_status, etc.), ONLY use exact values from valid common_values
-    When user asks for a value NOT in the database:
-    1. DO NOT add filters for non-existent values
-    2. Return results without that filter
-    3. NEVER hallucinate values hoping they exist
+        1. TABLE SELECTION:
+        - Tours scheduled/booked → tour_bookings (has lead_id, status='Scheduled')
+            * "tours scheduled", "booked tours", "tour bookings" → tour_bookings table
+            * "available tour slots", "tour availability", "open slots" → tour_availability_slots table
+            * Key difference: tour_bookings has actual bookings with lead_id, tour_availability_slots has open slots
+        - Available tour slots → tour_availability_slots (has is_available flag)
+        - Current/past tenants → tenants table (anyone who has/had a lease)
+        - Tenant Queries:
+            * "current tenants", "residents", "people living" → tenants table
+            * "moved in", "moved out", "lease dates" → tenants table (check lease_start_date/lease_end_date)
+            * "late payments" → tenants table (check payment_status)
+        - Prospects/leads → leads table (potential tenants)
+            * "prospects", "interested people", "potential tenants" → leads table
+            * "showings scheduled" → leads table (check status='Showing Scheduled')
+        - Properties/rooms → rooms table joined with buildings
+            * "available rooms", "properties", "units" → rooms table joined with buildings
+            * Always join rooms with buildings for complete information
 
-    ENFORCEMENT RULE:
-    Before adding ANY WHERE/GROUP BY condition:
-    1. Check if the value exists in VALID COLUMN VALUES
-    2. If NOT found → DO NOT add that filter
-    3. Return what IS available rather than no results
+        2. COLUMN MATCHING:
+        - Building names: Use ILIKE with fuzzy matching
+            * Fuzzy Matching Example: WHERE building_name ILIKE '%' || REPLACE('folsom', ' ', '%') || '%'
+            * Handle typos: WHERE building_name ILIKE '%folsom%' (catches 'follsom')
+            * Partial match: WHERE building_name ILIKE '%1080%' (catches by number)
+            * Example: User says "follsom residence" → WHERE building_name ILIKE '%folsom%' OR building_name ILIKE '%1080%'
+        - Status/enum fields: Use exact match with correct case
+            Example: WHERE status = 'Available' (not 'available' or 'AVAILABLE')
+        - Dates stored as TEXT: Use TO_DATE() for comparisons
+            Example: WHERE TO_DATE(slot_date, 'YYYY-MM-DD') >= CURRENT_DATE
 
-    WHERE CLAUSE RULES (MANDATORY):
-    - Every WHERE condition on categorical columns MUST use values from VALID COLUMN VALUES if  not listed and you use it = -100 points
-    - Pattern: WHERE column = 'value' OR LIKE '%value%'→ 'value' MUST exist in the valid values list above if not listed still filtered in SQL query = -100 points
-    - For building names: ALWAYS use ILIKE '%value%' pattern
-    - This is THE ONLY EXCEPTION to the "use exact values" rule for categorical columns
-    - Building names are treated as partial match columns, not exact match columns
-    - For status columns: ONLY use the exact status values listed
-    - For boolean columns: ONLY use true/false (lowercase)
-    - For date columns: Follow the date format rules in VALID COLUMN VALUES
-    - PENALTY: Using any non-listed value = -100 points = IMMEDIATE REJECTION
-    - For columns with valid values listed: ONLY use = or IN(), NEVER use LIKE
-    - nearby_conveniences_walk, security_features = categorical, NOT free text
+        3. REQUIRED COLUMNS:
+        - Property queries: Include room_id, room_number, private_room_rent, status, building_name, building_id, building_images_url
+        - Analytics: Include building_id, building_name, building_images_url with aggregates
+        - Always include enough columns for meaningful results
 
-    QUERY EXPANSION RULES:
-    When user queries are vague or single-word, expand them intelligently:
+        4. JOIN PATTERNS:
+        - rooms → buildings via building_id
+        - tenants → rooms via room_id
+        - tour_bookings → tour_availability_slots via slot_id
+        - Use proper aliases: r=rooms, b=buildings, t=tenants, l=leads, tb=tour_bookings, tas=tour_availability_slots
 
-    1. **Single word queries:**
-    - "buildings" → "SELECT b.*, COUNT(r.room_id) as total_rooms FROM buildings b LEFT JOIN rooms r ON b.building_id = r.building_id GROUP BY b.building_id"
-    - "rooms" → "SELECT r.*, b.building_name, b.area FROM rooms r JOIN buildings b ON r.building_id = b.building_id WHERE r.status = 'Available' LIMIT 20"
-    - "tenants" → "SELECT t.*, r.room_number, b.building_name FROM tenants t JOIN rooms r ON t.room_id = r.room_id JOIN buildings b ON r.building_id = b.building_id WHERE t.status = 'Active'"
+        5. FORBIDDEN:
+        - Never use columns/tables not in schema
+        - Never use values not in VALID COLUMN VALUES
+        - Never use DROP, TRUNCATE, ALTER, CREATE
+        - Never access tables outside allowed list: {allowed_tables}
+        - Never use exact match (=) for building names unless specifically requested
+        - Never assume exact spelling for building names
 
-    2. **Vague location queries:**
-    - "show all buildings" → Include room counts and availability stats
-    - "list properties" → Show buildings with aggregated room information
-    - "what's available" → Show available rooms with full details
+        OUTPUT FORMAT (JSON):
+        {{
+            "sql": "Your PostgreSQL query here",
+            "explanation": "Brief explanation",
+            "estimated_rows": realistic_number,
+            "tables_used": ["list", "of", "tables"],
+            "query_type": "SELECT"
+        }}
 
-    3. **Incomplete queries:**
-    - If user just mentions entity without action → default to SELECT with useful joins
-    - Always include related table information for context
-    - Add reasonable LIMIT clauses to prevent overwhelming results
+        EXAMPLE QUERIES WITH PROPER COLUMN SELECTION:
 
-    4. **Smart defaults:**
-    - For room searches without filters → show only 'Available' status
-    - For building queries → always include room statistics
-    - For tenant queries → show only 'Active' status unless specified
+            1. Property Search Query:
+            SELECT r.room_id, r.room_number, r.private_room_rent, r.status, r.sq_footage, r.view, 
+                r.bathroom_type, r.bed_type, r.floor_number,
+                b.building_id, b.building_name, b.area, b.street, b.full_address,
+                b.wifi_included, b.laundry_onsite, b.fitness_area, b.pet_friendly, b.building_images_url
+            FROM rooms r 
+            JOIN buildings b ON r.building_id = b.building_id 
+            WHERE r.status = 'Available' 
+            AND r.private_room_rent < 2000
+            AND b.area = 'Downtown'
+            ORDER BY r.private_room_rent 
+            LIMIT 20;
 
-    REMEMBER: It's better to show useful results than no results!
+            2. Building Revenue Query (Grouped):
+            SELECT b.building_id, b.building_name, b.area, b.street, b.full_address, b.building_images_url
+                COUNT(r.room_id) as total_rooms,
+                SUM(CASE WHEN r.status = 'Available' THEN 1 ELSE 0 END) as available_rooms,
+                SUM(CASE WHEN r.status = 'Available' THEN r.private_room_rent ELSE 0 END) AS projected_revenue
+            FROM buildings b
+            LEFT JOIN rooms r ON b.building_id = r.building_id
+            GROUP BY b.building_id, b.building_name, b.area, b.street, b.full_address
+            ORDER BY projected_revenue DESC
+            LIMIT 10;
 
-    GROUP BY RULES (MANDATORY):
-    - Can ONLY GROUP BY columns that have valid values listed above
-    - When grouping by categorical columns, the query will only return groups that exist in valid values
-    - NEVER assume additional values exist beyond those listed
-    - If filtering grouped results, WHERE/HAVING must also use only valid values
-    - PENALTY: Grouping by non-categorical columns without aggregation = -50 points
-    - PENALTY: Using non-existent values in HAVING clause = -100 points
+            3. Multiple Results Query (Highest and Lowest Occupancy):
+            SELECT * FROM (
+                SELECT b.building_id, b.building_name, b.area, b.building_images_url
+                    COUNT(r.room_id) as total_rooms,
+                    SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) as occupied_rooms,
+                    ROUND(CAST(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) AS NUMERIC) / COUNT(r.room_id) * 100, 2) as occupancy_rate,
+                    'Highest' as category
+                FROM buildings b
+                JOIN rooms r ON b.building_id = r.building_id
+                GROUP BY b.building_id, b.building_name, b.area
+                ORDER BY occupancy_rate DESC
+                LIMIT 1
+            ) 
+            UNION ALL
+            SELECT * FROM (
+                SELECT b.building_id, b.building_name, b.area, b.building_images_url
+                    COUNT(r.room_id) as total_rooms,
+                    SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) as occupied_rooms,
+                    ROUND(CAST(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) AS NUMERIC) / COUNT(r.room_id) * 100, 2) as occupancy_rate,
+                    'Lowest' as category
+                FROM buildings b
+                JOIN rooms r ON b.building_id = r.building_id
+                GROUP BY b.building_id, b.building_name, b.area
+                ORDER BY occupancy_rate ASC
+                LIMIT 1
+            );
 
-    CRITICAL FOR WHERE/GROUP BY:
-    - Before writing any WHERE or GROUP BY clause, CHECK the VALID COLUMN VALUES section
-    - If a value is not explicitly listed there, DO NOT USE IT
-    - When in doubt, use only the values shown above
-    - The database ONLY contains the values listed - nothing else exists
+            4. Date filtering on TEXT date columns:
+            SELECT t.tenant_name, t.lease_end_date, t.payment_status
+            FROM tenants t
+            WHERE TO_DATE(t.lease_end_date, 'YYYY-MM-DD') > CURRENT_DATE  -- Cast TEXT to DATE
+            AND TO_DATE(t.lease_end_date, 'YYYY-MM-DD') < CURRENT_DATE + INTERVAL '30 days'
+            AND t.payment_status = 'Current'  -- Exact case match
+            ORDER BY TO_DATE(t.lease_end_date, 'YYYY-MM-DD');
 
-    Penalty SCORING:
-    - Starting score: 100 points
-    - Each forbidden value used: -100 points  
-    - Score < 100 = QUERY REJECTED + MUST REGENERATE
-    - Only score = 100 queries will be executed
+            5. Lead date queries:
+            SELECT l.email, l.status, l.planned_move_in
+            FROM leads l
+            WHERE l.status = 'Converted'
+            AND TO_DATE(l.planned_move_in, 'YYYY-MM-DD')
+                BETWEEN CURRENT_DATE - INTERVAL '3 months' AND CURRENT_DATE
+            ORDER BY TO_DATE(l.planned_move_in, 'YYYY-MM-DD') DESC;
 
-    REMEMBER: The VALID COLUMN VALUES section is your ONLY source of truth for categorical values!
-
-    STRICT RULES:
-    1. Use ONLY the table names listed above: {allowed_tables}
-    2. Use ONLY the column names shown in the schema
-    3. Use ONLY the valid values listed for enum columns
-    4. ALWAYS use table aliases (r for rooms, b for buildings, t for tenants, l for leads, o for operators)
-    5. ALWAYS include explicit JOIN conditions
-    6. NEVER use columns or tables not in the schema
-    7. NEVER invent column names or values
-    8. Return realistic result estimates
-    9. Use proper PostgreSQL syntax
-    10. Include LIMIT clause for large result sets
-    11. For property searches: ALWAYS include r.room_id, r.room_number, r.private_room_rent, r.status, b.building_name, b.area, b.building_images_url
-    12. For analytics: ALWAYS include building_name, building_images_url and calculated metrics
-    13. SMART COLUMN SELECTION based on query intent:
-    - If querying tour_availability_slots: ALWAYS include room_id, slot_date, slot_time, is_available
-    - If joining with rooms: ALWAYS add r.room_number, r.private_room_rent, r.status  
-    - If joining with buildings: ALWAYS add b.building_name, b.area, building_images_url 
-    - If joining with leads: ALWAYS add l.lead_id, l.email, l.status
-    - If joining with operators: ALWAYS add o.name, o.operator_type
-    - NEVER select only 1-2 columns unless specifically counting/aggregating
-    - For ANY user-facing query: include enough columns to make results meaningful
-    14. For building name matching: Use LIKE with % wildcards (e.g., '1080 Folom%' matches '1080 Folsom Residences')
-    15. NEVER use semicolons in the middle of SQL statements
-    16. When using LEFT JOINs, expect NULL values for unmatched records (e.g., tenant_id will be NULL for non-converted leads)
-    17. Use COALESCE or CASE statements to provide default values where appropriate
-    18. Column aliases (using AS) are encouraged for clarity - they help the frontend understand the data
-    19. For year-only TEXT columns (buildings.last_renovation, buildings.year_built): Use CAST(column AS INTEGER) for comparisons
-    20. NEVER use TO_DATE with 'YYYY' format - PostgreSQL doesn't support it
-    21. For date comparisons with tour tables:
-    - tour_availability_slots.slot_date is TEXT - use: TO_DATE(slot_date, 'YYYY-MM-DD')
-    - tour_bookings.scheduled_date is TEXT - use: TO_DATE(scheduled_date, 'YYYY-MM-DD')
-    - Example: WHERE TO_DATE(tas.slot_date, 'YYYY-MM-DD') >= CURRENT_DATE
-    - NEVER compare TEXT dates directly with DATE functions
-    22. COMMON SENSE DATE HANDLING:
-    - When user says month/day without year, check context:
-      * If date already passed this year → assume next year
-      * If date is upcoming → assume current year
-    - "Sept 23" when today is Sept 17, 2025 → use 2025-09-23
-    - "Jan 15" when today is Sept 17, 2025 → use 2026-01-15
-    - "yesterday", "today", "tomorrow" → relative to CURRENT_DATE
-    - Always prefer FUTURE dates over PAST dates unless explicitly historical 
-    23. For building name matching: ALWAYS use ILIKE with % wildcards for maximum flexibility
-    - User input "1080 Folsom" → WHERE building_name ILIKE '%1080 Folsom%' 
-    - User input "Columbus" → WHERE building_name ILIKE '%Columbus%'
-    - This catches variations like:
-      * "1080 Folsom" matches "1080 Folsom Residences"
-      * "Mars" matches "Buildings on Mars (Hypothetical)"
-      * Partial names and misspellings
-    - NEVER use exact match (=) for building names unless specifically requested
-    - ALWAYS prefer ILIKE over LIKE for case-insensitive matching
-
-    CRITICAL COLUMN SELECTION RULES:
-    Based on the query type, you MUST include these columns in your SELECT statement:
-
-    FOR PROPERTY/ROOM QUERIES (when searching for rooms, apartments, properties, or showing available rooms):
-    - REQUIRED: r.room_id, r.room_number, r.private_room_rent, r.status, r.building_id, b.building_name, b.building_id, b.building_images_url
-    - STRONGLY RECOMMENDED: r.sq_footage, r.view, r.bathroom_type, r.bed_type, r.floor_number, b.street, b.full_address, b.wifi_included, b.laundry_onsite, b.fitness_area, b.pet_friendly
-
-    FOR BUILDING REVENUE/ANALYTICS QUERIES:
-    - If grouping by building: SELECT b.building_id, b.building_name, b.area, b.building_images_url, [your calculated metrics like SUM, COUNT, etc.]
-    - If showing individual rooms with revenue: Include ALL room columns as listed above
-    - NEVER just select building_name and a metric - always include building_id and area at minimum
-
-    FOR TENANT QUERIES:
-    - REQUIRED: t.tenant_id, t.tenant_name, t.tenant_email, t.phone, t.status, r.room_id, r.room_number, b.building_name
-    - RECOMMENDED: t.lease_start_date, t.lease_end_date, t.booking_type, t.payment_status, t.deposit_amount
-
-    FOR LEAD QUERIES:
-    - REQUIRED: l.lead_id, l.email, l.status, l.interaction_count
-    - RECOMMENDED: l.selected_room_id, l.planned_move_in, l.planned_move_out, l.budget_min, l.budget_max
-    
-    CRITICAL: Generate exactly ONE SQL query that best answers the user's question. If they ask for multiple things, either:
-    - Use UNION ALL to combine results
-    - Or use window functions to get both in one query
-
-    REQUIRED OUTPUT FORMAT (JSON):
-    {{
-        "sql": "Valid PostgreSQL query using ONLY the schema above",
-        "explanation": "Brief explanation of what the query does",
-        "estimated_rows": "Realistic estimate of rows returned (number)",
-        "tables_used": ["list", "of", "tables", "referenced"],
-        "query_type": "SELECT|INSERT|UPDATE|DELETE"
-    }}
-
-    EXAMPLE QUERIES WITH PROPER COLUMN SELECTION:
-
-    1. Property Search Query:
-    SELECT r.room_id, r.room_number, r.private_room_rent, r.status, r.sq_footage, r.view, 
-        r.bathroom_type, r.bed_type, r.floor_number,
-        b.building_id, b.building_name, b.area, b.street, b.full_address,
-        b.wifi_included, b.laundry_onsite, b.fitness_area, b.pet_friendly, b.building_images_url
-    FROM rooms r 
-    JOIN buildings b ON r.building_id = b.building_id 
-    WHERE r.status = 'Available' 
-    AND r.private_room_rent < 2000
-    AND b.area = 'Downtown'
-    ORDER BY r.private_room_rent 
-    LIMIT 20;
-
-    2. Building Revenue Query (Grouped):
-    SELECT b.building_id, b.building_name, b.area, b.street, b.full_address, b.building_images_url
-        COUNT(r.room_id) as total_rooms,
-        SUM(CASE WHEN r.status = 'Available' THEN 1 ELSE 0 END) as available_rooms,
-        SUM(CASE WHEN r.status = 'Available' THEN r.private_room_rent ELSE 0 END) AS projected_revenue
-    FROM buildings b
-    LEFT JOIN rooms r ON b.building_id = r.building_id
-    GROUP BY b.building_id, b.building_name, b.area, b.street, b.full_address
-    ORDER BY projected_revenue DESC
-    LIMIT 10;
-
-    3. Multiple Results Query (Highest and Lowest Occupancy):
-    SELECT * FROM (
-        SELECT b.building_id, b.building_name, b.area, b.building_images_url
-            COUNT(r.room_id) as total_rooms,
-            SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) as occupied_rooms,
-            ROUND(CAST(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) AS NUMERIC) / COUNT(r.room_id) * 100, 2) as occupancy_rate,
-            'Highest' as category
-        FROM buildings b
-        JOIN rooms r ON b.building_id = r.building_id
-        GROUP BY b.building_id, b.building_name, b.area
-        ORDER BY occupancy_rate DESC
-        LIMIT 1
-    ) 
-    UNION ALL
-    SELECT * FROM (
-        SELECT b.building_id, b.building_name, b.area, b.building_images_url
-            COUNT(r.room_id) as total_rooms,
-            SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) as occupied_rooms,
-            ROUND(CAST(SUM(CASE WHEN r.status = 'Occupied' THEN 1 ELSE 0 END) AS NUMERIC) / COUNT(r.room_id) * 100, 2) as occupancy_rate,
-            'Lowest' as category
-        FROM buildings b
-        JOIN rooms r ON b.building_id = r.building_id
-        GROUP BY b.building_id, b.building_name, b.area
-        ORDER BY occupancy_rate ASC
-        LIMIT 1
-    );
-
-    4. Date filtering on TEXT date columns:
-    SELECT t.tenant_name, t.lease_end_date, t.payment_status
-    FROM tenants t
-    WHERE TO_DATE(t.lease_end_date, 'YYYY-MM-DD') > CURRENT_DATE  -- Cast TEXT to DATE
-    AND TO_DATE(t.lease_end_date, 'YYYY-MM-DD') < CURRENT_DATE + INTERVAL '30 days'
-    AND t.payment_status = 'Current'  -- Exact case match
-    ORDER BY TO_DATE(t.lease_end_date, 'YYYY-MM-DD');
-
-    5. Lead date queries:
-    SELECT l.email, l.status, l.planned_move_in
-    FROM leads l
-    WHERE l.status = 'Converted'
-    AND TO_DATE(l.planned_move_in, 'YYYY-MM-DD')
-        BETWEEN CURRENT_DATE - INTERVAL '3 months' AND CURRENT_DATE
-    ORDER BY TO_DATE(l.planned_move_in, 'YYYY-MM-DD') DESC;
-
-    REMEMBER: The frontend expects specific columns to render results. Missing essential columns will cause "Unknown" or "$0" to appear in the UI!
-
-    Generate SQL that answers the user's question using ONLY the schema provided.
-    """
+        Generate exactly ONE SQL query that best answers the user's question.
+        """
     
     def _get_common_values(self) -> str:
         """Get common enum values for validation."""

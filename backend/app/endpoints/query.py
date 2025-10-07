@@ -81,7 +81,12 @@ async def process_web_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     Uses intelligent function selection like the main qsuery endpoint.
     """
     query = query_request.get("query")
-    user_context = query_request.get("user_context", {})
+    user_context = {
+        "permissions": ["admin"],
+        "role": "admin",
+        "user_id": query_request.get("user_id", "admin_user")
+    }
+    # user_context = query_request.get("user_context", {})
     
     if not query:
         raise HTTPException(status_code=400, detail="Query text is required.")
@@ -111,7 +116,11 @@ async def process_email_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     Uses intelligent function selection like the main query endpoint.
     """
     query = query_request.get("query")
-    user_context = query_request.get("user_context", {})
+    user_context = {
+        "permissions": ["admin"],
+        "role": "admin",
+        "user_id": query_request.get("user_id", "admin_user")
+    }
     
     if not query:
         raise HTTPException(status_code=400, detail="Query text is required.")
@@ -141,7 +150,12 @@ async def process_sms_query(query_request: Dict[str, Any]) -> Dict[str, Any]:
     Uses intelligent function selection like the main query endpoint.
     """
     query = query_request.get("query")
-    user_context = query_request.get("user_context", {})
+    lead_id = query_request.get("lead_id", "anonymous_lead")
+    user_context = {
+        "permissions": ["lead"],
+        "role": "lead",
+        "user_id": lead_id
+    }
     
     if not query:
         raise HTTPException(status_code=400, detail="Query text is required.")
