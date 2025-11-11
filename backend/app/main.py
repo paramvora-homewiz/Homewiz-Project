@@ -19,6 +19,7 @@ origins = [
     "https://homewiz-frontend-five.vercel.app",
     "https://homewiz-frontend-b27n58pus-home-wiz1.vercel.app",
     "http://localhost:3000",
+    
 ]
 
 app.add_middleware(
