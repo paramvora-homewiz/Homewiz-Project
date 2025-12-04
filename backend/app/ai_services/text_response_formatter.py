@@ -454,7 +454,7 @@ class TextResponseFormatter:
         try:
             print(f"🎨 TextResponseFormatter - Calling Gemini for format_type: {format_type}")
             response = self.client.models.generate_content(
-                model="gemini-2.0-flash-exp",
+                model="gemini-2.0-flash",
                 contents=prompt,
                 config=GenerateContentConfig(
                     temperature=0.5,

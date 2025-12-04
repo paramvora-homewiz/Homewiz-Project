@@ -69,7 +69,44 @@ def get_building_with_images(db: Session, building_id: str):
             "priority": building.priority,
             "created_at": building.created_at,
             "last_modified": building.last_modified,
-            "virtual_tour_url": building.virtual_tour_url
+            "virtual_tour_url": building.virtual_tour_url,
+            # NEW: Multiple video/tour URLs
+            "virtual_tour_urls": building.virtual_tour_urls,
+            # NEW: WalkScore data
+            "walkscore_data": building.walkscore_data,
+            "walkscore": building.walkscore,
+            "walkscore_transit": building.walkscore_transit,
+            "walkscore_bike": building.walkscore_bike,
+            # NEW: Security features
+            "security_cameras": building.security_cameras,
+            "keycard_access": building.keycard_access,
+            "keycode_entry": building.keycode_entry,
+            "security_guard": building.security_guard,
+            "onsite_manager": building.onsite_manager,
+            "gated_community": building.gated_community,
+            "intercom_system": building.intercom_system,
+            "building_alarm": building.building_alarm,
+            # NEW: Accessibility features
+            "wheelchair_ramp": building.wheelchair_ramp,
+            "elevator_access": building.elevator_access,
+            "wide_doorways": building.wide_doorways,
+            "accessible_bathroom": building.accessible_bathroom,
+            "hearing_assistance": building.hearing_assistance,
+            "visual_assistance": building.visual_assistance,
+            "accessible_parking": building.accessible_parking,
+            "grab_bars": building.grab_bars,
+            "lowered_counters": building.lowered_counters,
+            "accessible_entrance": building.accessible_entrance,
+            "service_animal_friendly": building.service_animal_friendly,
+            "accessible_emergency": building.accessible_emergency,
+            "accessibility_details": building.accessibility_details,
+            # NEW: Parking options
+            "covered_parking": building.covered_parking,
+            "garage_parking": building.garage_parking,
+            "street_parking": building.street_parking,
+            "visitor_parking": building.visitor_parking,
+            "handicap_parking": building.handicap_parking,
+            "electric_charging": building.electric_charging,
         }
         
         # Parse building images

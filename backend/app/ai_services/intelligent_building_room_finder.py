@@ -2,6 +2,7 @@
 
 import json
 import re
+import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from google import genai
@@ -10,6 +11,7 @@ from google.genai.types import GenerateContentConfig
 from app.ai_services.gemini_sql_generator import GeminiSQLGenerator
 from app.ai_services.sql_executor import SQLExecutor
 from app.db.database_constants import DATABASE_DISTINCT_VALUES, validate_value, get_valid_values
+from app.ai_services.text_response_formatter import TextResponseFormatter
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -344,3 +346,342 @@ def unified_room_search_function(query: str, **kwargs) -> Dict[str, Any]:
             "data": [],
             "query": query
         }
+
+
+def extract_bed_search_criteria(query: str) -> Dict[str, Any]:
+    """
+    Extract bed-specific search criteria from natural language query.
+    Handles queries like "find a bed under $800" or "available beds in SOMA".
+    """
+    print(f"🛏️ Extracting bed criteria from: '{query}'")
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=f"""
+            Extract BED search criteria from this query: "{query}"
+
+            This is for searching individual BEDS within rooms, not entire rooms.
+            Each room can have multiple beds, each with its own:
+            - rent (price per bed)
+            - status (Available, Reserved, Occupied)
+            - availableFrom/availableUntil dates
+            - bedType (Single, Double, Queen, King, Bunk)
+            - view
+
+            Extract:
+            {{
+                "max_rent": null,           // Maximum bed rent (e.g., "under $800" -> 800)
+                "min_rent": null,           // Minimum bed rent
+                "status": "Available",       // Bed status filter (default: Available)
+                "bed_type": null,           // Specific bed type
+                "available_from": null,     // Date bed should be available from
+                "city": null,               // City filter from building
+                "area": null,               // Area filter (SOMA, Mission, etc.)
+                "building_id": null         // Specific building
+            }}
+
+            Price keywords:
+            - "cheap"/"budget" = max $800
+            - "affordable" = max $1000
+            - "under $X" = max X
+            - "around $X" = min X-200, max X+200
+
+            Return ONLY valid JSON.
+            """,
+            config=GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=300
+            )
+        )
+
+        response_text = response.text.strip()
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+
+        if json_match:
+            criteria = json.loads(json_match.group(0))
+            print(f"✅ Bed criteria extracted: {criteria}")
+            return criteria
+        else:
+            print(f"⚠️ Failed to extract bed criteria JSON")
+            return {"status": "Available"}
+
+    except Exception as e:
+        print(f"❌ Error extracting bed criteria: {e}")
+        return {"status": "Available"}
+
+
+def unified_bed_search_function(query: str, **kwargs) -> Dict[str, Any]:
+    """
+    Unified bed search function that searches for individual BEDS within rooms.
+    Handles queries like "find a bed under $800" or "available beds".
+
+    Returns bed-level results with room and building context.
+    """
+    print(f"🛏️ UNIFIED BED SEARCH: '{query}'")
+    print("=" * 70)
+
+    try:
+        # Step 1: Extract bed-specific criteria
+        criteria = extract_bed_search_criteria(query)
+
+        # Step 2: Build SQL to get rooms with bed configuration
+        # Note: Bed-level fields (min_rent, max_rent, etc.) are stored inside beds_configuration JSON
+        # We fetch all rooms with beds_configuration and do filtering in Python
+        sql_parts = [
+            """
+            SELECT
+                r.room_id,
+                r.room_number,
+                r.room_type,
+                r.floor_number,
+                r.bathroom_type,
+                r.beds_configuration,
+                r.private_room_rent,
+                b.building_id,
+                b.building_name,
+                b.city,
+                b.full_address,
+                b.state,
+                b.area
+            FROM rooms r
+            INNER JOIN buildings b ON r.building_id = b.building_id
+            WHERE r.ready_to_rent = true
+            AND r.beds_configuration IS NOT NULL
+            """
+        ]
+
+        # Add building-level pre-filters (these columns exist)
+        # Using parameterized-style filtering to prevent SQL injection
+        # Note: Values are sanitized by removing dangerous characters
+        def sanitize_sql_value(value: str) -> str:
+            """Remove characters that could be used for SQL injection"""
+            if not value:
+                return ''
+            # Remove quotes, semicolons, and SQL comment markers
+            dangerous_chars = ["'", '"', ';', '--', '/*', '*/', '\\']
+            sanitized = str(value)
+            for char in dangerous_chars:
+                sanitized = sanitized.replace(char, '')
+            return sanitized.strip()
+
+        if criteria.get('city'):
+            safe_city = sanitize_sql_value(criteria['city'])
+            sql_parts.append(f"AND LOWER(b.city) LIKE LOWER('%{safe_city}%')")
+        if criteria.get('area'):
+            safe_area = sanitize_sql_value(criteria['area'])
+            sql_parts.append(f"AND LOWER(b.area) LIKE LOWER('%{safe_area}%')")
+        if criteria.get('building_id'):
+            safe_building_id = sanitize_sql_value(criteria['building_id'])
+            sql_parts.append(f"AND r.building_id = '{safe_building_id}'")
+
+        # Order by private_room_rent as proxy (bed filtering happens in Python)
+        sql_parts.append("ORDER BY r.private_room_rent ASC NULLS LAST LIMIT 100")
+
+        sql = '\n'.join(sql_parts)
+        print(f"📝 Generated SQL: {sql}")
+
+        # Step 3: Execute SQL
+        executor = SQLExecutor()
+        results = executor.execute_query(sql)
+
+        if not results['success']:
+            return {
+                "success": False,
+                "response": f"Error searching beds: {results.get('error', 'Unknown error')}",
+                "data": [],
+                "beds": [],
+                "query": query
+            }
+
+        # Step 4: Parse beds from each room and filter at bed level
+        beds = []
+        for room in results['data']:
+            # Try beds_configuration first, then bed_configurations
+            beds_config = room.get('beds_configuration') or room.get('bed_configurations')
+
+            if not beds_config:
+                continue
+
+            # Parse JSON if string
+            if isinstance(beds_config, str):
+                try:
+                    beds_config = json.loads(beds_config)
+                except:
+                    continue
+
+            # Handle both old format (list) and new format (object with beds array)
+            beds_list = []
+            if isinstance(beds_config, list):
+                # Old format: direct list of beds
+                beds_list = beds_config
+            elif isinstance(beds_config, dict):
+                # New format: {beds: [...], min_rent: ..., max_rent: ..., ...}
+                beds_list = beds_config.get('beds', [])
+            else:
+                continue
+
+            if not beds_list:
+                continue
+
+            # Filter and collect individual beds
+            for bed in beds_list:
+                # Apply bed-level filters
+                bed_rent = bed.get('rent')
+                bed_status = bed.get('status', 'Available')
+
+                # Price filter
+                if criteria.get('max_rent') and bed_rent and bed_rent > criteria['max_rent']:
+                    continue
+                if criteria.get('min_rent') and bed_rent and bed_rent < criteria['min_rent']:
+                    continue
+
+                # Status filter
+                if criteria.get('status') and bed_status != criteria['status']:
+                    continue
+
+                # Bed type filter
+                if criteria.get('bed_type') and bed.get('bedType') != criteria['bed_type']:
+                    continue
+
+                # Build bed result with room and building context
+                floor_num = room.get('floor_number')
+                room_num = room['room_number']
+                bathroom = room.get('bathroom_type', '')
+
+                # Create unique room display name to differentiate same room numbers
+                # Format: "Room 12 (Floor 1, Private Bath)" or "Room 12 (Floor 2, Shared Bath)"
+                room_display_parts = [f"Room {room_num}"]
+                differentiators = []
+                if floor_num:
+                    differentiators.append(f"Floor {floor_num}")
+                if bathroom:
+                    differentiators.append(f"{bathroom} Bath")
+                if differentiators:
+                    room_display_name = f"Room {room_num} ({', '.join(differentiators)})"
+                else:
+                    room_display_name = f"Room {room_num}"
+
+                beds.append({
+                    # Bed details
+                    "bed_id": bed.get('bed_id', f"{room['room_id']}_BED_unknown"),
+                    "bedName": bed.get('bedName', 'Unnamed Bed'),
+                    "bedType": bed.get('bedType'),
+                    "rent": bed_rent,
+                    "status": bed_status,
+                    "availableFrom": bed.get('availableFrom'),
+                    "availableUntil": bed.get('availableUntil'),
+                    "view": bed.get('view'),
+                    "maxOccupancy": bed.get('maxOccupancy', 1),
+                    # Room context
+                    "room_id": room['room_id'],
+                    "room_number": room_num,
+                    "room_display_name": room_display_name,  # NEW: Unique display name
+                    "room_type": room.get('room_type'),
+                    "floor_number": floor_num,
+                    "bathroom_type": bathroom,
+                    # Building context
+                    "building_id": room.get('building_id'),
+                    "building_name": room.get('building_name'),
+                    "building_city": room.get('city'),
+                    "building_address": room.get('full_address'),
+                    "building_state": room.get('state'),
+                    "building_area": room.get('area')
+                })
+
+        # Sort by rent (cheapest first)
+        beds.sort(key=lambda x: x.get('rent') or float('inf'))
+
+        print(f"✅ Found {len(beds)} beds")
+
+        # Step 5: Format response using TextResponseFormatter for rich markdown
+        format_type = kwargs.get('format_type', 'web')
+
+        if len(beds) == 0:
+            response_text = f"No beds found matching '{query}'. Try adjusting your search criteria."
+        else:
+            # Use TextResponseFormatter for rich markdown response
+            try:
+                formatter = TextResponseFormatter()
+
+                # Run async formatter in sync context
+                def run_formatter():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        return loop.run_until_complete(
+                            formatter.format_response(
+                                data=beds,
+                                original_query=query,
+                                result_type="bed_search",
+                                format_type=format_type
+                            )
+                        )
+                    finally:
+                        loop.close()
+
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_formatter)
+                    response_text = future.result()
+
+                print(f"✅ TextResponseFormatter generated response ({len(response_text)} chars)")
+
+            except Exception as format_error:
+                print(f"⚠️ TextResponseFormatter failed, using fallback: {format_error}")
+                # Fallback to basic response
+                prices = [b['rent'] for b in beds if b.get('rent')]
+                if prices:
+                    price_range = f"${min(prices):,.0f} - ${max(prices):,.0f}"
+                    response_text = f"🛏️ Found {len(beds)} beds matching '{query}'. Price range: {price_range}/month."
+                else:
+                    response_text = f"🛏️ Found {len(beds)} beds matching '{query}'."
+
+        return {
+            "success": True,
+            "response": response_text,
+            "data": beds,  # For compatibility
+            "beds": beds,  # Explicit bed results
+            "total_results": len(beds),
+            "search_criteria": criteria,
+            "query": query,
+            "search_type": "beds"  # Indicate this is a bed search
+        }
+
+    except Exception as e:
+        print(f"❌ BED SEARCH ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "response": f"Bed search failed: {str(e)}",
+            "data": [],
+            "beds": [],
+            "query": query
+        }
+
+
+def is_bed_search_query(query: str) -> bool:
+    """
+    Determine if a query is asking about individual beds vs rooms.
+    """
+    query_lower = query.lower()
+
+    # Keywords that indicate bed-level search
+    bed_keywords = [
+        'bed under', 'bed below', 'bed for', 'beds under', 'beds below',
+        'cheapest bed', 'affordable bed', 'budget bed',
+        'single bed', 'available bed', 'find a bed', 'find bed',
+        'bed in', 'beds in', 'bed at', 'beds at',
+        'individual bed', 'one bed', 'per bed'
+    ]
+
+    for keyword in bed_keywords:
+        if keyword in query_lower:
+            return True
+
+    # Check for price + bed pattern
+    if re.search(r'\$?\d+.*bed|bed.*\$?\d+', query_lower):
+        return True
+
+    return False
