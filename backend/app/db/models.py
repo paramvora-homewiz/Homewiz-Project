@@ -78,6 +78,49 @@ class Building(Base):
     building_images = Column(String)  # JSON array of image URLs or references
     virtual_tour_url = Column(String)
     building_videos = Column(String)
+
+    # NEW: Multiple video/tour URLs (frontend enhancement)
+    virtual_tour_urls = Column(String)  # JSON array of tour URLs
+
+    # NEW: WalkScore data (frontend enhancement)
+    walkscore_data = Column(String)  # JSON string of full WalkScore response
+    walkscore = Column(Integer)
+    walkscore_transit = Column(Integer)
+    walkscore_bike = Column(Integer)
+
+    # NEW: Security features (frontend enhancement)
+    security_cameras = Column(Boolean, default=False)
+    keycard_access = Column(Boolean, default=False)
+    keycode_entry = Column(Boolean, default=False)
+    security_guard = Column(Boolean, default=False)
+    onsite_manager = Column(Boolean, default=False)
+    gated_community = Column(Boolean, default=False)
+    intercom_system = Column(Boolean, default=False)
+    building_alarm = Column(Boolean, default=False)
+
+    # NEW: Accessibility features (frontend enhancement)
+    wheelchair_ramp = Column(Boolean, default=False)
+    elevator_access = Column(Boolean, default=False)
+    wide_doorways = Column(Boolean, default=False)
+    accessible_bathroom = Column(Boolean, default=False)
+    hearing_assistance = Column(Boolean, default=False)
+    visual_assistance = Column(Boolean, default=False)
+    accessible_parking = Column(Boolean, default=False)
+    grab_bars = Column(Boolean, default=False)
+    lowered_counters = Column(Boolean, default=False)
+    accessible_entrance = Column(Boolean, default=False)
+    service_animal_friendly = Column(Boolean, default=False)
+    accessible_emergency = Column(Boolean, default=False)
+    accessibility_details = Column(String)
+
+    # NEW: Parking options (frontend enhancement)
+    covered_parking = Column(Boolean, default=False)
+    garage_parking = Column(Boolean, default=False)
+    street_parking = Column(Boolean, default=False)
+    visitor_parking = Column(Boolean, default=False)
+    handicap_parking = Column(Boolean, default=False)
+    electric_charging = Column(Boolean, default=False)
+
     operator = relationship("Operator", back_populates="buildings", foreign_keys=[operator_id])
     # operator = relationship("Operator", back_populates="buildings")
     rooms = relationship("Room", back_populates="building")
@@ -129,6 +172,32 @@ class Room(Base):
     available_from = Column(Date)
     additional_features = Column(String)
     room_images = Column(String)
+
+    # NEW: Room type and pricing for shared rooms (frontend enhancement)
+    room_type = Column(String, default="Standard")  # Standard, Shared, Suite, Studio, etc.
+    shared_room_rent_3 = Column(Float)  # 3-person occupancy pricing
+    shared_room_rent_4 = Column(Float)  # 4+ person occupancy pricing
+
+    # NEW: Per-bed configuration (frontend enhancement)
+    bed_configurations = Column(String)  # JSON array of bed configs
+    beds_configuration = Column(String)  # JSON array - alternative name for frontend compatibility
+
+    # NEW: AI-optimized bed query fields (for "find a bed under $800" queries)
+    min_bed_rent = Column(Float)  # Minimum rent across all beds in room
+    max_bed_rent = Column(Float)  # Maximum rent across all beds in room
+    available_beds_count = Column(Integer, default=0)  # Count of beds with status 'Available'
+    has_available_beds = Column(Boolean, default=True)  # Quick filter for any available bed
+
+    # NEW: Maintenance tracking (frontend enhancement)
+    room_condition_score = Column(Integer)  # 1-10 rating
+    cleaning_frequency = Column(String)  # DAILY, WEEKLY, BIWEEKLY, MONTHLY, AS_NEEDED
+    utilities_meter_id = Column(String)
+    last_cleaning_date = Column(Date)
+    last_maintenance_staff_id = Column(Integer, ForeignKey("operators.operator_id"))
+    description = Column(String)  # Room description
+
+    # NEW: Utilities included as structured data (frontend enhancement)
+    utilities_included_details = Column(String)  # JSON object of which utilities are included
 
     building = relationship("Building", back_populates="rooms")
     tenants = relationship("Tenant", back_populates="room")

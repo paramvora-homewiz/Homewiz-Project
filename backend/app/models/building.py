@@ -46,6 +46,48 @@ class BuildingBase(BaseModel):
     # building_videos: Optional[List[Dict]] = []        #incase we want to store video metadata
     building_videos: Optional[List[str]] = []
 
+    # NEW: Multiple video/tour URLs (frontend enhancement)
+    virtual_tour_urls: Optional[List[str]] = []
+
+    # NEW: WalkScore data (frontend enhancement)
+    walkscore_data: Optional[str] = None  # JSON string of full WalkScore response
+    walkscore: Optional[int] = None
+    walkscore_transit: Optional[int] = None
+    walkscore_bike: Optional[int] = None
+
+    # NEW: Security features (frontend enhancement)
+    security_cameras: Optional[bool] = False
+    keycard_access: Optional[bool] = False
+    keycode_entry: Optional[bool] = False
+    security_guard: Optional[bool] = False
+    onsite_manager: Optional[bool] = False
+    gated_community: Optional[bool] = False
+    intercom_system: Optional[bool] = False
+    building_alarm: Optional[bool] = False
+
+    # NEW: Accessibility features (frontend enhancement)
+    wheelchair_ramp: Optional[bool] = False
+    elevator_access: Optional[bool] = False
+    wide_doorways: Optional[bool] = False
+    accessible_bathroom: Optional[bool] = False
+    hearing_assistance: Optional[bool] = False
+    visual_assistance: Optional[bool] = False
+    accessible_parking: Optional[bool] = False
+    grab_bars: Optional[bool] = False
+    lowered_counters: Optional[bool] = False
+    accessible_entrance: Optional[bool] = False
+    service_animal_friendly: Optional[bool] = False
+    accessible_emergency: Optional[bool] = False
+    accessibility_details: Optional[str] = None
+
+    # NEW: Parking options (frontend enhancement)
+    covered_parking: Optional[bool] = False
+    garage_parking: Optional[bool] = False
+    street_parking: Optional[bool] = False
+    visitor_parking: Optional[bool] = False
+    handicap_parking: Optional[bool] = False
+    electric_charging: Optional[bool] = False
+
 
 class BuildingCreate(BuildingBase):
     pass # No extra fields for creation
@@ -87,6 +129,49 @@ class BuildingUpdate(BuildingBase):
 
     building_images: Optional[List[str]] = None
     virtual_tour_url: Optional[str] = None
+    building_videos: Optional[List[str]] = None
+
+    # NEW: Multiple video/tour URLs
+    virtual_tour_urls: Optional[List[str]] = None
+
+    # NEW: WalkScore data
+    walkscore_data: Optional[str] = None
+    walkscore: Optional[int] = None
+    walkscore_transit: Optional[int] = None
+    walkscore_bike: Optional[int] = None
+
+    # NEW: Security features
+    security_cameras: Optional[bool] = None
+    keycard_access: Optional[bool] = None
+    keycode_entry: Optional[bool] = None
+    security_guard: Optional[bool] = None
+    onsite_manager: Optional[bool] = None
+    gated_community: Optional[bool] = None
+    intercom_system: Optional[bool] = None
+    building_alarm: Optional[bool] = None
+
+    # NEW: Accessibility features
+    wheelchair_ramp: Optional[bool] = None
+    elevator_access: Optional[bool] = None
+    wide_doorways: Optional[bool] = None
+    accessible_bathroom: Optional[bool] = None
+    hearing_assistance: Optional[bool] = None
+    visual_assistance: Optional[bool] = None
+    accessible_parking: Optional[bool] = None
+    grab_bars: Optional[bool] = None
+    lowered_counters: Optional[bool] = None
+    accessible_entrance: Optional[bool] = None
+    service_animal_friendly: Optional[bool] = None
+    accessible_emergency: Optional[bool] = None
+    accessibility_details: Optional[str] = None
+
+    # NEW: Parking options
+    covered_parking: Optional[bool] = None
+    garage_parking: Optional[bool] = None
+    street_parking: Optional[bool] = None
+    visitor_parking: Optional[bool] = None
+    handicap_parking: Optional[bool] = None
+    electric_charging: Optional[bool] = None
 
 
 class Building(BuildingBase):

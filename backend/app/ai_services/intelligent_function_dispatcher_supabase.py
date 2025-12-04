@@ -7,7 +7,11 @@ from app.config import GEMINI_API_KEY
 from google.genai.types import GenerateContentConfig
 
 from app.ai_services.update_handler import update_function_sync
-from app.ai_services.intelligent_building_room_finder import unified_room_search_function
+from app.ai_services.intelligent_building_room_finder import (
+    unified_room_search_function,
+    unified_bed_search_function,
+    is_bed_search_query
+)
 from app.ai_services.v3_intelligent_insights_supabase import generate_insights_function
 from app.ai_services.hallucination_free_query_processor import HallucinationFreeQueryProcessor
 from app.ai_services.tour_scheduling_function import tour_scheduling_function
@@ -93,11 +97,12 @@ def universal_query_function(query: str, format_type: str = "web", **kwargs) -> 
 
 # Create function registry with updated functions
 AI_FUNCTIONS_REGISTRY = {
-    # "unified_room_search_function": unified_room_search_function,  
+    # "unified_room_search_function": unified_room_search_function,
     # "generate_insights_function": generate_insights_function,
     "universal_query_function": universal_query_function,  # NEW: Universal query function
     "update_function": update_function_sync,
-    "tour_scheduling_function": tour_scheduling_function, 
+    "tour_scheduling_function": tour_scheduling_function,
+    "unified_bed_search_function": unified_bed_search_function,  # NEW: Bed-level search
     # Add other functions
 }
 
@@ -106,7 +111,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 def intelligent_function_selection(query: str, user_context: Dict[str, Any] = None, format_type: str = "web") -> Dict[str, Any]:
     """
     Use LLM to determine which function to call and execute it directly
-    
+
     Args:
         query: The user's natural language query
         user_context: User permissions and role information
@@ -114,12 +119,27 @@ def intelligent_function_selection(query: str, user_context: Dict[str, Any] = No
     """
     print(f"🤖 Function Selection - Query: '{query}'")
     print(f"🤖 Function Selection - User context received: {user_context}")
-    print(f"🤖 Function Selection - Format type: {format_type}")  # ADD THIS LINE
+    print(f"🤖 Function Selection - Format type: {format_type}")
     print(f"🤖 Function Selection - Permissions in context: {user_context.get('permissions') if user_context else 'None'}")
-    
+
     # Default user context if not provided
     if user_context is None:
         user_context = {"role": "user", "permissions": ["basic"]}
+
+    # PRE-CHECK: Fast path for bed queries (skip LLM call)
+    if is_bed_search_query(query):
+        print(f"🛏️ Detected bed search query - using unified_bed_search_function directly")
+        try:
+            result = unified_bed_search_function(query=query, user_context=user_context, format_type=format_type)
+            return {
+                "success": True,
+                "function_called": "unified_bed_search_function",
+                "result": result,
+                "confidence": 0.95
+            }
+        except Exception as e:
+            print(f"❌ Bed search error: {e}")
+            # Fall through to LLM selection if bed search fails
 
     
     # Get available function names for the prompt
@@ -128,17 +148,31 @@ def intelligent_function_selection(query: str, user_context: Dict[str, Any] = No
     
     system_prompt = f"""
     You are an intelligent property management assistant. Analyze the user query and determine the most appropriate function to call.
-    
+
     User Query: "{query}"
-    
+
     Available functions: {functions_list}
-    
-    Guidelines:    
+
+    Guidelines:
+
+    Use unified_bed_search_function for:
+    - Queries asking about individual BEDS (not rooms)
+    - Price queries for beds: "bed under $800", "cheapest bed", "affordable bed"
+    - Available beds: "available beds", "find a bed"
+    - Bed-specific searches: "single bed", "queen bed available"
+    - Keywords: bed, beds, individual bed, per bed, bed under, bed for
+    - Examples:
+      * "find a bed under $800"
+      * "show available beds"
+      * "cheapest bed in SOMA"
+      * "beds under $1000"
+    - This searches individual beds within rooms, each with their own price and status
 
     Use universal_query_function for:
-    - ANY query that reads, searches, or analyzes data
+    - ANY query that reads, searches, or analyzes data about ROOMS (not individual beds)
     - ANY query that doesn't fit the above categories
     - Keywords: find, show, list, search, display, what, how many, get, view, report, analyze
+    - Room searches: "rooms under $2000", "available rooms"
     - This handles ALL read operations including room searches and analytics
     - Complex queries requiring multiple tables
     - Custom queries not covered by specific functions
@@ -146,7 +180,7 @@ def intelligent_function_selection(query: str, user_context: Dict[str, Any] = No
     - When you're unsure which specific function to use
     - Keywords: tenant, lead, maintenance, schedule, event, document, message, notification, checklist
     - This is the most flexible and powerful option for any query
-    
+
     Use update_function for:
     - ANY query that modifies, changes, or updates existing data
     - Room updates: status changes, price adjustments, amenity updates, maintenance flags

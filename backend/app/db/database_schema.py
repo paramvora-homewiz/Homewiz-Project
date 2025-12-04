@@ -188,7 +188,35 @@ DATABASE_SCHEMA = {
                 "available_from": {"type": "TEXT", "nullable": True, "description": "Date from which room is available"},
                 "additional_features": {"type": "TEXT", "nullable": True, "description": "Additional features of the room"},
                 "room_images": {"type": "TEXT", "nullable": True, "description": "JSON array of room image URLs"},
-                "last_modified": {"type": "TIMESTAMP WITH TIME ZONE", "nullable": True, "description": "Last modification timestamp"}
+                "last_modified": {"type": "TIMESTAMP WITH TIME ZONE", "nullable": True, "description": "Last modification timestamp"},
+
+                # Room type and shared pricing
+                "room_type": {"type": "TEXT", "nullable": True, "description": "Room type (Standard, Shared, Suite, Studio, Private)"},
+                "shared_room_rent_3": {"type": "DOUBLE PRECISION", "nullable": True, "description": "Rent for 3-person occupancy"},
+                "shared_room_rent_4": {"type": "DOUBLE PRECISION", "nullable": True, "description": "Rent for 4+ person occupancy"},
+
+                # Per-bed configuration (JSON array of bed details)
+                "bed_configurations": {"type": "TEXT", "nullable": True, "description": "JSON array of bed configs (legacy)"},
+                "beds_configuration": {"type": "TEXT", "nullable": True, "description": "JSON array of beds with individual rent, status, availability"},
+
+                # AI-optimized computed fields for bed queries
+                "min_bed_rent": {"type": "DOUBLE PRECISION", "nullable": True, "description": "Minimum rent across all beds in room (for AI queries like 'bed under $800')"},
+                "max_bed_rent": {"type": "DOUBLE PRECISION", "nullable": True, "description": "Maximum rent across all beds in room"},
+                "available_beds_count": {"type": "INTEGER", "nullable": True, "description": "Count of beds with status 'Available'"},
+                "has_available_beds": {"type": "BOOLEAN", "nullable": True, "description": "Quick filter: true if any bed is available"},
+
+                # Maintenance tracking
+                "room_condition_score": {"type": "INTEGER", "nullable": True, "description": "Room condition rating 1-10"},
+                "cleaning_frequency": {"type": "TEXT", "nullable": True, "description": "Cleaning schedule (DAILY, WEEKLY, BIWEEKLY, MONTHLY, AS_NEEDED)"},
+                "utilities_meter_id": {"type": "TEXT", "nullable": True, "description": "Utilities meter ID"},
+                "last_cleaning_date": {"type": "TEXT", "nullable": True, "description": "Date of last cleaning"},
+                "last_maintenance_staff_id": {"type": "BIGINT", "nullable": True, "description": "ID of last maintenance staff"},
+                "description": {"type": "TEXT", "nullable": True, "description": "Room description"},
+
+                # Utilities
+                "utilities_included_details": {"type": "TEXT", "nullable": True, "description": "JSON object of included utilities"},
+                "room_amenities": {"type": "TEXT", "nullable": True, "description": "JSON object of room amenities"},
+                "custom_amenities": {"type": "TEXT", "nullable": True, "description": "Custom amenities text"}
             },
             "relationships": [
                 {"type": "many_to_one", "target": "buildings", "foreign_key": "building_id"},
